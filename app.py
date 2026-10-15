@@ -96,11 +96,12 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
-# SYSTEM DATABASE ENGINE (AUTOMATIC CAPABILITIES)
+# SYSTEM DATABASE ENGINE (WITH AUTOMATIC DATA RECOVERY & COMPATIBILITY)
 # ------------------------------------------------------------------
 @st.cache_resource
 def get_conn():
-    conn = sqlite3.connect("tenders_v3.db", check_same_thread=False)
+    # Enforcing master production name to completely reset synchronization path leaks
+    conn = sqlite3.connect("tenders_master.db", check_same_thread=False)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS tenders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +114,28 @@ def get_conn():
             submission_type TEXT)"""
     )
     conn.commit()
+
+    # --- BRAIN ENGINE: Automatic Recovery from old database filenames ---
+    for old_db in ["tenders_v3.db", "tenders_v2.db", "tenders.db"]:
+        try:
+            old_conn = sqlite3.connect(old_db)
+            old_df = pd.read_sql("SELECT * FROM tenders", old_conn)
+            if not old_df.empty:
+                for _, row in old_df.iterrows():
+                    # Check if already exists to prevent duplicate injection
+                    c = conn.execute("SELECT COUNT(*) FROM tenders WHERE tender_name=? AND party=?", (row['tender_name'], row['party'])).fetchone()[0]
+                    if c == 0:
+                        rem = row.get('remarks', '')
+                        sub_t = row.get('submission_type', 'Online (E-Procurement)')
+                        conn.execute(
+                            "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
+                            (row['tender_name'], row['party'], row['amount'], row['due_date'], row['status'], rem, sub_t)
+                        )
+                conn.commit()
+            old_conn.close()
+        except Exception:
+            pass
+            
     return conn
 
 conn = get_conn()
@@ -190,7 +213,7 @@ st.write("")
 df = load_df()
 
 # ------------------------------------------------------------------
-# DYNAMIC TOP CONTROL DECK PANEL (FORM CHANGES HERE)
+# DYNAMIC TOP CONTROL DECK PANEL (FORM PANEL INTERACTION)
 # ------------------------------------------------------------------
 st.markdown('<div class="action-container">', unsafe_allow_html=True)
 
@@ -218,27 +241,3 @@ elif page == "➕ Add Record Entry":
             if name.strip() and party.strip():
                 conn.execute(
                     "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
-                    (name.strip(), party.strip(), amount, str(due), status, remarks, submission_type),
-                )
-                conn.commit()
-                st.success("🎉 Advanced Tender Profile mapped successfully into Core System Data storage.")
-                st.rerun()
-            else:
-                st.error("❌ Process Halting: Please check that Tender Nomenclature and Party details are not empty.")
-
-elif page == "✏️ Edit / Delete Entry":
-    st.subheader("✏️ Live Database Record Manipulator & Destructor")
-    if df.empty:
-        st.warning("Database contains no modification files.")
-    else:
-        rec_choices = {int(r.id): f"Record Reference #{int(r.id)} ➡️ {r.tender_name} [{r.party}]" for r in df.itertuples()}
-        sel = st.selectbox("Choose Target Profile ID to Update/Remove", list(rec_choices.keys()), format_func=lambda i: rec_choices[i])
-        
-        rec = df[df["id"] == sel].iloc[0]
-        with st.form("live_edit_matrix"):
-            e1, e2 = st.columns(2, gap="medium")
-            e_name = e1.text_input("Edit Nomenclature", value=str(rec["tender_name"]))
-            e_party = e2.text_input("Edit Party Group", value=str(rec["party"]))
-            
-            e3, e4, e5 = st.columns(3, gap="medium")
-            e_amount = e3.number_input("Refine Worth", min_value=0.0, value=float(rec["amount"] or 0))
