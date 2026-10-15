@@ -6,12 +6,12 @@ import plotly.express as px
 import streamlit as st
 
 # ------------------------------------------------------------------
-# PAGE CONFIG
+# PREMIUM FULL-SCREEN PAGE CONFIG
 # ------------------------------------------------------------------
 st.set_page_config(
     page_title="Advanced Tender Intelligence Dashboard - SSS",
     page_icon="🏆",
-    layout="wide",
+    layout="wide", # Enforces widescreen infrastructure
     initial_sidebar_state="collapsed",
 )
 
@@ -26,31 +26,40 @@ BG = "#F8FAFC"
 CURRENCY = "₹"
 
 # ------------------------------------------------------------------
-# ENHANCED CSS
+# ULTRA-WIDE CORPORATE WEB VIEW CSS
 # ------------------------------------------------------------------
 st.markdown(
     f"""
 <style>
+    /* Completely strip out sidebar controls and utilize full screen space */
     [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display: none;}}
     header[data-testid="stHeader"] {{background: transparent;}}
     .stApp {{background: {BG};}}
-    .block-container {{padding-top: 1rem; padding-bottom: 2rem; max-width: 1400px;}}
+    
+    /* Force Web App to span across 98% of desktop viewport */
+    .block-container {{
+        padding-top: 1rem !important; 
+        padding-bottom: 2rem !important; 
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
+        max-width: 98% !important; 
+    }}
 
-    /* Advanced Banner */
+    /* Executive Wide Banner */
     .banner {{
         background: linear-gradient(135deg, {NAVY} 0%, {BLUE} 100%);
-        color: white; text-align: center; padding: 22px 10px;
+        color: white; text-align: center; padding: 25px 20px;
         border-radius: 14px; box-shadow: 0 4px 20px rgba(15,30,54,.2);
-        margin-bottom: 20px;
+        margin-bottom: 20px; width: 100%;
     }}
-    .banner h1 {{margin: 0; font-size: 2.2rem; letter-spacing: 1.5px; font-weight: 800; color: white;}}
-    .banner p {{margin: 6px 0 0 0; font-size: .95rem; opacity: .9; letter-spacing: 1px;}}
+    .banner h1 {{margin: 0; font-size: 2.4rem; letter-spacing: 1.5px; font-weight: 800; color: white;}}
+    .banner p {{margin: 6px 0 0 0; font-size: 1rem; opacity: .9; letter-spacing: 1px;}}
 
-    /* Custom Responsive Buttons */
+    /* Global Grid Layout & Responsive Buttons */
     div.stButton > button {{
-        width: 100%; height: 54px; border-radius: 12px; font-weight: 700;
+        width: 100%; height: 56px; border-radius: 12px; font-weight: 700;
         letter-spacing: .5px; border: 1px solid {BLUE}; transition: all .25s ease;
-        font-size: 0.9rem !important;
+        font-size: 0.95rem !important;
     }}
     div.stButton > button[kind="secondary"],
     div.stButton > button[data-testid="stBaseButton-secondary"] {{
@@ -63,23 +72,23 @@ st.markdown(
     }}
     div.stButton > button:hover {{transform: translateY(-2px); box-shadow: 0 6px 16px rgba(29,78,216,.25);}}
 
-    /* Premium Metric Grid */
+    /* Premium Metric Grid Layout */
     .kpi {{
-        background: white; border-radius: 12px; padding: 18px 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,.04); border-top: 5px solid {BLUE};
-        transition: transform 0.2s;
+        background: white; border-radius: 12px; padding: 22px 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.04); border-top: 6px solid {BLUE};
+        transition: transform 0.2s; width: 100%;
     }}
     .kpi:hover {{transform: translateY(-2px);}}
-    .kpi .label {{font-size: .8rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}}
-    .kpi .value {{font-size: 1.8rem; font-weight: 800; color: {NAVY}; margin-top: 6px;}}
+    .kpi .label {{font-size: .85rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}}
+    .kpi .value {{font-size: 2rem; font-weight: 800; color: {NAVY}; margin-top: 6px;}}
     .kpi.green {{border-top-color: {GREEN};}}
     .kpi.red {{border-top-color: {RED};}}
     .kpi.amber {{border-top-color: {AMBER};}}
     .kpi.purple {{border-top-color: {PURPLE};}}
 
     .section-title {{
-        color: {NAVY}; font-weight: 800; font-size: 1.3rem;
-        border-left: 5px solid {BLUE}; padding-left: 10px; margin: 25px 0 15px 0;
+        color: {NAVY}; font-weight: 800; font-size: 1.4rem;
+        border-left: 6px solid {BLUE}; padding-left: 12px; margin: 30px 0 15px 0;
     }}
 </style>
 """,
@@ -87,7 +96,7 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
-# EXTENDED DATABASE ARCHITECTURE
+# SYSTEM DATABASE ARCHITECTURE
 # ------------------------------------------------------------------
 @st.cache_resource
 def get_conn():
@@ -148,15 +157,15 @@ TABLE_CONFIG = {
 TABLE_COLS = ["id", "tender_name", "party", "amount", "due_date", "status", "submission_type", "days_left", "alert"]
 
 # ------------------------------------------------------------------
-# SMART TELEMETRY & BANNER
+# SYSTEM BANNER SETUP
 # ------------------------------------------------------------------
 st.markdown(
     '<div class="banner"><h1>📑 TENDER COMMAND STATION & INTELLIGENCE</h1>'
-    "<p>A TO Z EXECUTIVE LEVEL ADMINISTRATIVE SUITE</p></div>",
+    "<p>A TO Z EXECUTIVE LEVEL ADMINISTRATIVE SUITE — FULL SCREEN VIEW</p></div>",
     unsafe_allow_html=True,
 )
 
-# UPGRADED 5 SYSTEM NAV BUTTONS
+# 5 ADVANCED RESPONSIVE TOP NAV BAR NAVIGATION
 PAGES = ["Dashboard", "Manage A-Z Records", "🛡️ Participated", "❌ Not Participated", "📊 Advanced Analytics"]
 
 if "page" not in st.session_state:
@@ -181,13 +190,13 @@ st.write("")
 df = load_df()
 
 # ------------------------------------------------------------------
-# INTERACTIVE SUITE VIEW ROUTING
+# MODULE INJECTION ROUTING
 # ------------------------------------------------------------------
 if df.empty and page != "Manage A-Z Records":
-    st.info("⚡ System Database is empty. Please open 'Manage A-Z Records' to register your initial data.")
+    st.info("⚡ System Database is empty. Please open 'Manage A-Z Records' tab to initialize corporate tender metrics.")
 else:
     # --------------------------------------------------------------
-    # MODULE 1: COMPREHENSIVE DASHBOARD
+    # MODULE 1: COMPREHENSIVE DASHBOARD OVERVIEW
     # --------------------------------------------------------------
     if page == "Dashboard":
         part_count = len(df[df["status"] == "Bidded (Participated)"])
@@ -195,17 +204,17 @@ else:
         pending = df[df["status"] == "Pending"]
         overdue = pending[pending["days_left"] < 0]
 
-        # Metric Command Rows
-        k1, k2, k3, k4, k5 = st.columns(5)
+        # Metric Fluid Row spans wide across screens
+        k1, k2, k3, k4, k5 = st.columns(5, gap="medium")
         kpi(k1, "Total Pipeline Records", len(df))
         kpi(k2, "Gross Cumulative Value", money(df["amount"].sum()), "purple")
         kpi(k3, "👍 Participated Count", part_count, "green")
         kpi(k4, "👎 Not Participated", not_part_count, "amber")
         kpi(k5, "🔴 Critical Overdue", len(overdue), "red")
 
-        # Visual Dashboard Split Analytics
+        # Full Width Visual Plots split dynamically
         st.markdown('<div class="section-title">Core Performance Architecture</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
+        c1, c2 = st.columns(2, gap="large")
         with c1:
             fig = px.pie(
                 df, names="status", values="amount", hole=0.6,
@@ -216,7 +225,7 @@ else:
                 },
                 title="Monetary Value Split Distribution (Donut Level)",
             )
-            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white")
+            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white", autosize=True)
             st.plotly_chart(fig, use_container_width=True)
             
         with c2:
@@ -229,22 +238,12 @@ else:
                 },
                 title="Operational Exposure Breakdown by Party Stack",
             )
-            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white", plot_bgcolor="white")
+            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white", plot_bgcolor="white", autosize=True)
             st.plotly_chart(fig, use_container_width=True)
 
         st.markdown('<div class="section-title">Recent High-Value Strategic Tenders</div>', unsafe_allow_html=True)
         st.dataframe(
-            df.head(10)[TABLE_COLS], column_config=TABLE_CONFIG,
-            hide_index=True, use_container_width=True,
+            df.head(15)[TABLE_COLS], column_config=TABLE_CONFIG,
+            hide_index=True, use_container_width=True, # Auto scales natively to monitor edges
         )
 
-    # --------------------------------------------------------------
-    # MODULE 2: MASTER A-Z MANAGEMENT (ADD / EDIT / SEARCH)
-    # --------------------------------------------------------------
-    elif page == "Manage A-Z Records":
-        t1, t2 = st.tabs(["➕ Add New Record Entry", "🔍 Master A-Z Directory & Editor"])
-        
-        with t1:
-            st.markdown('<div class="section-title">Register New Tender Details</div>', unsafe_allow_html=True)
-            with st.form("master_add_form", clear_on_submit=True):
-                a1, a2 = st.columns(2)
