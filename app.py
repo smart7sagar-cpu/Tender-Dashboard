@@ -1,229 +1,296 @@
-import io
-import sqlite3
-from datetime import date, datetime, timedelta
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import streamlit as st
-import time
-import traceback
-
 # ==================================================================
-# COMPATIBILITY HELPERS
+# AUTH BLOCK  -  paste this right AFTER the line:  conn = get_conn()
+# (needs: time, st, NAVY, BLUE, conn already defined above)
 # ==================================================================
-def do_rerun():
-    fn = getattr(st, "rerun", None) or getattr(st, "experimental_rerun")
-    fn()
+import hashlib
+import hmac
+import re
+import secrets
 
-def _s(obj, name, *args, **kwargs):
-    kwargs.pop("use_container_width", None)
-    fn = getattr(obj, name)
-    try:
-        return fn(*args, use_container_width=True, **kwargs)
-    except Exception:
-        return fn(*args, width="stretch", **kwargs)
+MIN_PW = 8
+MAX_FAILS = 5          # itni galat try ke baad lock
+LOCK_SECONDS = 300     # 5 minute lock
 
-# ==================================================================
-# PAGE CONFIG & STYLING
-# ==================================================================
-st.set_page_config(
-    page_title="Tender Portal - SSS",
-    page_icon="📑",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
-NAVY = "#12264A"
-BLUE = "#2F5FB3"
-GREEN = "#1E9E6A"
-RED = "#D64545"
-AMBER = "#E8A317"
-PURPLE = "#7B5EA7"
-TEAL = "#17A2B8"
-GREY = "#9AA5B8"
-BG = "#EEF2F8"
-CUR = "₹"
-PALETTE = [BLUE, GREEN, AMBER, RED, PURPLE, TEAL, "#FF7F50", GREY]
+def _hash_pw(pw: str, salt: str = None):
+    salt = salt or secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), 200_000).hex()
+    return salt, h
 
-CMAP_PART = {"Participated": BLUE, "Not Participated": GREY}
-CMAP_RESULT = {"Won": GREEN, "Lost": RED, "Pending": AMBER, "Cancelled": GREY}
-CMAP_STATUS = {"Pending": AMBER, "Completed": GREEN}
-CMAP_EMD = {"Paid": BLUE, "Refunded": GREEN, "Pending": AMBER, "Forfeited": RED, "Not Applicable": GREY}
-
-PARTICIPATION = ["Participated", "Not Participated"]
-RESULTS = ["Pending", "Won", "Lost", "Cancelled"]
-STATUSES = ["Pending", "Completed"]
-EMD_STATUS = ["Not Applicable", "Paid", "Refunded", "Pending", "Forfeited"]
-CATEGORIES = ["Works", "Supply", "Service", "Consultancy", "Maintenance", "Other"]
-
-st.markdown(
-    f"""
-<style>
-    [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display:none;}}
-    header[data-testid="stHeader"] {{background:transparent;}}
-    .stApp {{background:{BG};}}
-    .block-container {{max-width:100% !important; padding:0.8rem 2.2rem 2rem 2.2rem;}}
-    .topbar {{
-        background:{NAVY}; color:#cfd9ee; font-size:.78rem; padding:6px 18px;
-        border-radius:8px 8px 0 0; display:flex; justify-content:space-between; letter-spacing:.8px;
-    }}
-    .banner {{
-        background:linear-gradient(120deg,{NAVY} 0%,{BLUE} 60%,{TEAL} 100%);
-        color:white; text-align:center; padding:22px 10px; margin-bottom:16px;
-        border-radius:0 0 14px 14px; box-shadow:0 6px 18px rgba(18,38,74,.30);
-    }}
-    .banner h1 {{margin:0; font-size:2.2rem; letter-spacing:3px; font-weight:800; color:white;}}
-    .banner p {{margin:6px 0 0 0; font-size:.85rem; opacity:.9; letter-spacing:2px;}}
-    div.stButton > button {{
-        width:100%; height:50px; border-radius:10px; font-weight:700; letter-spacing:.4px;
-        border:1px solid {BLUE}; transition:all .2s; font-size:.85rem;
-    }}
-    div.stButton > button[kind="secondary"], div.stButton > button[data-testid="stBaseButton-secondary"] {{
-        background:white; color:{BLUE};
-    }}
-    div.stButton > button[kind="primary"], div.stButton > button[data-testid="stBaseButton-primary"] {{
-        background:linear-gradient(135deg,{BLUE},{NAVY}); color:white; border:none;
-        box-shadow:0 4px 10px rgba(47,95,179,.40);
-    }}
-    div.stButton > button:hover {{transform:translateY(-2px); box-shadow:0 6px 14px rgba(47,95,179,.30);}}
-    .kpi {{
-        background:white; border-radius:12px; padding:14px 16px; height:100%;
-        box-shadow:0 2px 10px rgba(0,0,0,.07); border-left:6px solid {BLUE};
-    }}
-    .kpi .label {{font-size:.72rem; color:#6B7A90; text-transform:uppercase; letter-spacing:1px; font-weight:700;}}
-    .kpi .value {{font-size:1.55rem; font-weight:800; color:{NAVY}; margin-top:3px;}}
-    .kpi.green {{border-left-color:{GREEN};}} .kpi.red {{border-left-color:{RED};}}
-    .kpi.amber {{border-left-color:{AMBER};}} .kpi.purple {{border-left-color:{PURPLE};}}
-    .kpi.teal {{border-left-color:{TEAL};}} .kpi.grey {{border-left-color:{GREY};}}
-    .section-title {{
-        color:{NAVY}; font-weight:800; font-size:1.1rem; border-bottom:3px solid {BLUE};
-        display:inline-block; padding-bottom:3px; margin:20px 0 10px 0; letter-spacing:.5px;
-    }}
-    .footer {{text-align:center; color:#8A97AB; font-size:.8rem; margin-top:34px;}}
-    div[data-testid="stWidgetLabel"] p {{color:{NAVY}; font-weight:600; font-size:.86rem;}}
-    div[data-baseweb="input"], div[data-baseweb="textarea"], div[data-baseweb="select"] > div {{
-        background:#FFFFFF !important; border:1.5px solid #B8C6DF !important; border-radius:8px !important;
-    }}
-    div[data-baseweb="input"] input, div[data-baseweb="textarea"] textarea {{color:#1B2A44 !important;}}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# ==================================================================
-# DATABASE SETUP WITH USER TABLE
-# ==================================================================
-DB_COLS = {
-    "tender_no": "TEXT", "tender_name": "TEXT", "department": "TEXT", "party": "TEXT",
-    "category": "TEXT", "location": "TEXT", "participation": "TEXT", "not_part_reason": "TEXT",
-    "estimated_cost": "REAL", "amount": "REAL", "emd_amount": "REAL", "emd_status": "TEXT",
-    "tender_fee": "REAL", "publish_date": "TEXT", "due_date": "TEXT", "opening_date": "TEXT",
-    "result": "TEXT", "status": "TEXT", "work_order_no": "TEXT", "remarks": "TEXT",
-    "work_description": "TEXT", "no_of_awardees": "INTEGER", "created_at": "TEXT",
-}
-TEXT_COLS = [c for c, t in DB_COLS.items() if t == "TEXT" and not c.endswith("_date") and c != "created_at"]
-NUM_COLS = ["estimated_cost", "amount", "emd_amount", "tender_fee"]
-DATE_COLS = ["publish_date", "due_date", "opening_date"]
 
 @st.cache_resource
-def get_conn():
-    conn = sqlite3.connect("tenders.db", check_same_thread=False)
-    conn.execute("CREATE TABLE IF NOT EXISTS tenders (id INTEGER PRIMARY KEY AUTOINCREMENT)")
-    existing = {r[1] for r in conn.execute("PRAGMA table_info(tenders)").fetchall()}
-    for col, typ in DB_COLS.items():
-        if col not in existing:
-            conn.execute(f"ALTER TABLE tenders ADD COLUMN {col} {typ}")
-            
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL
-        )
-    """)
-    user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    if user_count == 0:
-        conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ("admin", "admin123", "Admin"))
-    conn.commit()
-    return conn
-
-conn = get_conn()
-
-# ==================================================================
-# CORE FUNCTIONS
-# ==================================================================
-def fy_of(d):
-    if pd.isna(d): return "Unknown"
-    y = d.year if d.month >= 4 else d.year - 1
-    return f"{y}-{str(y + 1)[2:]}"
-
-def alert_of(r):
-    if r["participation"] == "Not Participated": return "⚪ Not Participated"
-    if r["status"] == "Completed": return "✅ Completed"
-    if r["result"] in ("Lost", "Cancelled"): return "⚫ Closed"
-    if pd.isna(r["days_left"]): return "⚪ No Date"
-    if r["days_left"] < 0: return "🔴 Overdue"
-    if r["days_left"] <= 7: return "🟠 Due Soon"
-    return "🟢 On Track"
-
-def load_df() -> pd.DataFrame:
-    df = pd.read_sql("SELECT * FROM tenders ORDER BY id DESC", conn)
-    if df.empty: return df
-    for c in TEXT_COLS: df[c] = df[c].fillna("")
-    for c in NUM_COLS: df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    df["no_of_awardees"] = pd.to_numeric(df["no_of_awardees"], errors="coerce").fillna(0).astype(int)
-    df["participation"] = df["participation"].replace("", "Participated")
-    df["result"] = df["result"].replace("", "Pending")
-    df["status"] = df["status"].replace("", "Pending")
-    df["emd_status"] = df["emd_status"].replace("", "Not Applicable")
-    for c in DATE_COLS: df[c] = pd.to_datetime(df[c], errors="coerce")
-    df["days_left"] = (df["due_date"] - pd.Timestamp(date.today())).dt.days
-    df["fy"] = df["due_date"].apply(fy_of)
-    df["month"] = df["due_date"].dt.strftime("%Y-%m")
-    df["alert"] = df.apply(alert_of, axis=1)
-    return df
-
-def bump():
-    st.session_state["ver"] = st.session_state.get("ver", 0) + 1
-
-def insert_record(v: dict):
-    cols = list(v)
-    conn.execute(f"INSERT INTO tenders ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", list(v.values()))
-    conn.commit()
-    bump()
-
-def update_record(rid: int, v: dict):
-    sets = ",".join(f"{c}=?" for c in v)
-    conn.execute(f"UPDATE tenders SET {sets} WHERE id=?", list(v.values()) + [rid])
-    conn.commit()
-    bump()
-
-def inr(x: float) -> str:
-    x = float(x or 0)
-    if abs(x) >= 1e7: return f"{CUR}{x / 1e7:.2f} Cr"
-    if abs(x) >= 1e5: return f"{CUR}{x / 1e5:.2f} L"
-    return f"{CUR}{x:,.0f}"
-
-def kpi(col, label, value, cls=""):
-    col.markdown(f'<div class="kpi {cls}"><div class="label">{label}</div><div class="value">{value}</div></div>', unsafe_allow_html=True)
-
-def title(text):
-    st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
-
-def style(fig, text, h=360):
-    fig.update_layout(
-        title=dict(text=text, font=dict(size=16, color=NAVY)),
-        height=h, margin=dict(t=55, b=15, l=15, r=15),
-        paper_bgcolor="white", plot_bgcolor="white",
-        font=dict(color="#33415C"), legend=dict(orientation="h", y=-0.12),
+def init_auth():
+    """Users table banata hai / purani plain-text passwords ko hash me convert karta hai."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS users ("
+        "username TEXT PRIMARY KEY, password TEXT NOT NULL DEFAULT '', role TEXT NOT NULL)"
     )
-    return fig
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    extra = {
+        "salt": "TEXT", "pw_hash": "TEXT", "full_name": "TEXT",
+        "must_change": "INTEGER DEFAULT 0", "failed": "INTEGER DEFAULT 0",
+        "locked_until": "REAL DEFAULT 0",
+    }
+    for col, typ in extra.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
 
-def donut(df, col, text, cmap, key, value=None):
-    if df.empty:
-        st.info(f"{text}: data nahi hai")
-        return
-    g = df.groupby(col, as_index=False)[value].sum() if value else df.groupby(col).size().reset_index(name="count")
-    vals = value if value else "count"
-    fig = px.pie(g, names=col, values=vals, hole=0.58, color=col, color_discrete_map=cmap)
-    fig.update_traces(textinfo="percent", textfont_size=13)
+    # purane plain-text passwords -> hash
+    for u, p in conn.execute("SELECT username, password FROM users WHERE pw_hash IS NULL").fetchall():
+        salt, h = _hash_pw(p or secrets.token_hex(8))
+        conn.execute(
+            "UPDATE users SET salt=?, pw_hash=?, password='', must_change=? WHERE username=?",
+            (salt, h, 1 if p == "admin123" else 0, u),
+        )
+    # pehli baar: default admin (login ke turant baad password badalna padega)
+    if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+        salt, h = _hash_pw("admin123")
+        conn.execute(
+            "INSERT INTO users (username, password, role, salt, pw_hash, must_change, full_name) "
+            "VALUES ('admin', '', 'Admin', ?, ?, 1, 'Administrator')", (salt, h))
+    conn.commit()
+    return True
+
+
+init_auth()
+
+
+def verify_login(username: str, password: str):
+    username = (username or "").strip().lower()
+    row = conn.execute(
+        "SELECT salt, pw_hash, role, must_change, failed, locked_until, full_name "
+        "FROM users WHERE username=?", (username,)).fetchone()
+    if not row:
+        _hash_pw(password)  # timing same rakhne ke liye
+        return None, "Username ya password galat hai."
+    salt, pw_hash, role, must_change, failed, locked_until, full_name = row
+    if locked_until and locked_until > time.time():
+        mins = int((locked_until - time.time()) // 60) + 1
+        return None, f"Bahut zyada galat try. Account {mins} minute ke liye lock hai."
+    if hmac.compare_digest(_hash_pw(password, salt)[1], pw_hash):
+        conn.execute("UPDATE users SET failed=0, locked_until=0 WHERE username=?", (username,))
+        conn.commit()
+        return {"username": username, "role": role, "name": full_name or username,
+                "must_change": bool(must_change)}, ""
+    failed = (failed or 0) + 1
+    lock = time.time() + LOCK_SECONDS if failed >= MAX_FAILS else 0
+    if failed >= MAX_FAILS:
+        failed = 0
+    conn.execute("UPDATE users SET failed=?, locked_until=? WHERE username=?", (failed, lock, username))
+    conn.commit()
+    return None, "Username ya password galat hai."
+
+
+def set_password(username: str, new_pw: str, must_change: int = 0):
+    salt, h = _hash_pw(new_pw)
+    conn.execute(
+        "UPDATE users SET salt=?, pw_hash=?, password='', must_change=?, failed=0, locked_until=0 "
+        "WHERE username=?", (salt, h, must_change, username))
+    conn.commit()
+
+
+def pw_problem(pw: str):
+    if len(pw) < MIN_PW:
+        return f"Password kam se kam {MIN_PW} characters ka hona chahiye."
+    if pw.lower() in ("password", "admin123", "12345678", "qwerty123"):
+        return "Ye password bahut common hai, koi dusra rakho."
+    return None
+
+
+def is_admin() -> bool:
+    return st.session_state.get("auth", {}).get("role") == "Admin"
+
+
+def current_user() -> str:
+    return st.session_state.get("auth", {}).get("username", "")
+
+
+# ---------- UI styling (same theme) ----------
+def _auth_css():
+    st.markdown(
+        f"""
+<style>
+    div[data-testid="stForm"] {{
+        background:white; border:none; border-radius:14px; padding:24px 26px;
+        box-shadow:0 6px 22px rgba(18,38,74,.14); border-top:5px solid {BLUE};
+    }}
+    .login-note {{text-align:center; color:#6B7A90; font-size:.8rem; margin-top:10px;}}
+</style>""",
+        unsafe_allow_html=True,
+    )
+
+
+def _auth_banner(sub):
+    st.markdown(
+        f'<div class="topbar"><span>TENDER PORTAL</span><span>SECURE ACCESS</span></div>'
+        f'<div class="banner"><h1>🔐 TENDER PORTAL</h1><p>{sub}</p></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def login_page():
+    _auth_css()
+    _auth_banner("SSS &nbsp;|&nbsp; PLEASE LOGIN TO CONTINUE")
+    _, mid, _ = st.columns([1, 1.1, 1])
+    with mid:
+        with st.form("login_form", clear_on_submit=False):
+            st.markdown(f"<h3 style='color:{NAVY};margin:0 0 8px 0'>Login</h3>", unsafe_allow_html=True)
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            ok = st.form_submit_button("Login", type="primary")
+        if ok:
+            if not u or not p:
+                st.error("Username aur password dono bharo.")
+            else:
+                user, err = verify_login(u, p)
+                if user:
+                    st.session_state["auth"] = user
+                    do_rerun()
+                else:
+                    time.sleep(1)  # brute-force slow karne ke liye
+                    st.error(err)
+        st.markdown('<div class="login-note">Naya account sirf Admin bana sakta hai.</div>',
+                    unsafe_allow_html=True)
+
+
+def force_change_page():
+    _auth_css()
+    _auth_banner("SET A NEW PASSWORD TO CONTINUE")
+    _, mid, _ = st.columns([1, 1.1, 1])
+    with mid:
+        with st.form("force_pw"):
+            st.warning("Security ke liye pehle apna password badalna zaroori hai.")
+            p1 = st.text_input("New password", type="password")
+            p2 = st.text_input("Confirm new password", type="password")
+            ok = st.form_submit_button("Save & Continue", type="primary")
+        if ok:
+            err = pw_problem(p1) or (None if p1 == p2 else "Dono password match nahi karte.")
+            if err:
+                st.error(err)
+            else:
+                set_password(current_user(), p1, 0)
+                st.session_state["auth"]["must_change"] = False
+                do_rerun()
+
+
+def require_login():
+    """Ye function login ke bina baaki app ko chalne hi nahi deta."""
+    if not st.session_state.get("auth"):
+        login_page()
+        st.stop()
+    if st.session_state["auth"].get("must_change"):
+        force_change_page()
+        st.stop()
+
+
+def account_panel():
+    """Banner ke neeche call karo: user info + logout + password change + user management."""
+    a = st.session_state["auth"]
+    c1, c2 = st.columns([6, 1])
+    c1.markdown(
+        f"<div style='color:{NAVY};font-weight:700;padding-top:12px'>👤 {a['name']} "
+        f"<span style='color:#6B7A90;font-weight:500'>({a['role']})</span></div>",
+        unsafe_allow_html=True,
+    )
+    if c2.button("Logout", key="logout_btn"):
+        st.session_state.clear()
+        do_rerun()
+
+    with st.expander("⚙️ Account Settings" + (" & User Management" if is_admin() else "")):
+        tabs = st.tabs(["🔑 Change Password"] + (["👥 Manage Users"] if is_admin() else []))
+
+        # ---- change own password ----
+        with tabs[0]:
+            with st.form("chg_pw", clear_on_submit=True):
+                old = st.text_input("Current password", type="password")
+                n1 = st.text_input("New password", type="password")
+                n2 = st.text_input("Confirm new password", type="password")
+                go = st.form_submit_button("Update Password", type="primary")
+            if go:
+                user, _ = verify_login(current_user(), old)
+                err = None
+                if not user:
+                    err = "Current password galat hai."
+                else:
+                    err = pw_problem(n1) or (None if n1 == n2 else "Dono password match nahi karte.")
+                if err:
+                    st.error(err)
+                else:
+                    set_password(current_user(), n1, 0)
+                    st.success("Password badal gaya ✅")
+
+        # ---- admin: sub-users ----
+        if is_admin():
+            with tabs[1]:
+                st.markdown("**➕ Naya user banao**")
+                with st.form("new_user", clear_on_submit=True):
+                    f1, f2 = st.columns(2)
+                    nu = f1.text_input("Username (a-z, 0-9, _ .)")
+                    nn = f2.text_input("Full name")
+                    f3, f4 = st.columns(2)
+                    npw = f3.text_input("Temporary password", type="password")
+                    nr = f4.selectbox("Role", ["User", "Admin"])
+                    add = st.form_submit_button("Create User", type="primary")
+                if add:
+                    nu = nu.strip().lower()
+                    if not re.fullmatch(r"[a-z0-9_.]{3,30}", nu):
+                        st.error("Username 3-30 characters ka ho (sirf a-z, 0-9, _ .).")
+                    elif conn.execute("SELECT 1 FROM users WHERE username=?", (nu,)).fetchone():
+                        st.error("Ye username pehle se hai.")
+                    elif pw_problem(npw):
+                        st.error(pw_problem(npw))
+                    else:
+                        salt, h = _hash_pw(npw)
+                        conn.execute(
+                            "INSERT INTO users (username, password, role, salt, pw_hash, must_change, full_name) "
+                            "VALUES (?, '', ?, ?, ?, 1, ?)", (nu, nr, salt, h, nn.strip() or nu))
+                        conn.commit()
+                        st.success(f"User '{nu}' ban gaya. Pehli login par wo apna password badlega.")
+
+                st.markdown("---")
+                st.markdown("**👥 Existing users**")
+                users = pd.read_sql("SELECT username, full_name, role FROM users ORDER BY username", conn)
+                st.dataframe(users, hide_index=True)
+
+                names = users["username"].tolist()
+                sel = st.selectbox("User chuno", names, key="adm_sel")
+                a1, a2, a3 = st.columns(3)
+                with a1:
+                    rp = st.text_input("Naya temporary password", type="password", key="adm_rp")
+                    if st.button("Reset Password", key="adm_rp_btn"):
+                        err = pw_problem(rp)
+                        if err:
+                            st.error(err)
+                        else:
+                            set_password(sel, rp, 1)
+                            st.success(f"{sel} ka password reset ho gaya.")
+                with a2:
+                    cur_role = users.loc[users.username == sel, "role"].iloc[0]
+                    new_role = st.selectbox("Role", ["User", "Admin"],
+                                            index=0 if cur_role == "User" else 1, key="adm_role")
+                    if st.button("Change Role", key="adm_role_btn"):
+                        admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='Admin'").fetchone()[0]
+                        if cur_role == "Admin" and new_role == "User" and admins <= 1:
+                            st.error("Kam se kam ek Admin hona zaroori hai.")
+                        else:
+                            conn.execute("UPDATE users SET role=? WHERE username=?", (new_role, sel))
+                            conn.commit()
+                            st.success("Role update ho gaya.")
+                with a3:
+                    st.write("")
+                    st.write("")
+                    if st.button("🗑️ Delete User", key="adm_del_btn"):
+                        admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='Admin'").fetchone()[0]
+                        if sel == current_user():
+                            st.error("Aap khud ko delete nahi kar sakte.")
+                        elif cur_role == "Admin" and admins <= 1:
+                            st.error("Aakhri Admin delete nahi ho sakta.")
+                        else:
+                            conn.execute("DELETE FROM users WHERE username=?", (sel,))
+                            conn.commit()
+                            st.success(f"{sel} delete ho gaya.")
+                            do_rerun()
+
+
+# ----- sabse important line: login ke bina neeche ka kuch bhi nahi chalega -----
+require_login()
