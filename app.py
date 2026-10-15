@@ -3,9 +3,8 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 from datetime import datetime, timedelta
-import pywhatkit as kit  # Note: Requires a logged-in WhatsApp Web session on the host machine
 
-# Database connection
+# डेटाबेस कनेक्शन
 conn = sqlite3.connect('tenders.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS tenders
@@ -50,7 +49,7 @@ elif menu == "View Records":
     if df.empty:
         st.info("No records found. Please add a tender first.")
     else:
-        # Filters
+        # फिल्टर्स
         col1, col2 = st.columns(2)
         with col1:
             party_filter = st.selectbox("Filter by Party", ["All"] + list(df['party'].dropna().unique()))
@@ -65,7 +64,7 @@ elif menu == "View Records":
 
         st.dataframe(filtered_df, use_container_width=True)
 
-        # Edit and Delete Section
+        # एडिट और डिलीट सेक्शन
         st.markdown("---")
         st.subheader("✏️ Edit or Delete a Record")
         
@@ -77,7 +76,6 @@ elif menu == "View Records":
             edit_party = st.text_input("Party Name", value=record_to_edit['party'])
             edit_amount = st.number_input("Amount", min_value=0.0, value=float(record_to_edit['amount']), step=500.0)
             
-            # Parsing existing date safely
             try:
                 default_date = datetime.strptime(record_to_edit['due_date'], "%Y-%m-%d").date()
             except ValueError:
@@ -113,7 +111,7 @@ elif menu == "Dashboard":
     if df.empty:
         st.info("Add records to visualize insights.")
     else:
-        # Key Metrics
+        # मुख्य मैट्रिक्स
         total_tenders = len(df)
         total_val = df['amount'].sum()
         pending_val = df[df['status'] == 'Pending']['amount'].sum()
@@ -125,7 +123,7 @@ elif menu == "Dashboard":
 
         st.markdown("---")
         
-        # Charts Row
+        # चार्ट्स
         fig_col1, fig_col2 = st.columns(2)
         
         with fig_col1:
@@ -143,13 +141,13 @@ elif menu == "Dashboard":
 
 # ------------------ EXPORT & REMINDER ------------------
 elif menu == "Export & Reminder":
-    st.subheader("📤 Data Export & WhatsApp Alerts")
+    st.subheader("📤 Data Export")
     df = pd.read_sql("SELECT * FROM tenders", conn)
 
     if df.empty:
-        st.info("No data available to export or send updates for.")
+        st.info("No data available to export.")
     else:
-        # File Export Segment
+        # CSV एक्सपोर्ट बटन
         st.markdown("#### 💾 Export Dataset")
         csv_data = df.to_csv(index=False).encode('utf-8')
         st.download_button(
@@ -158,37 +156,3 @@ elif menu == "Export & Reminder":
             file_name=f"tenders_export_{datetime.today().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
-        
-        st.markdown("---")
-        
-        # WhatsApp Automation Segment
-        st.markdown("#### 💬 Send Due Date Reminders")
-        pending_df = df[df['status'] == 'Pending']
-        
-        if pending_df.empty:
-            st.success("🎉 Outstanding status cleared! No pending alerts required.")
-        else:
-            st.dataframe(pending_df[['id', 'tender_name', 'party', 'amount', 'due_date']], use_container_width=True)
-            
-            with st.form("whatsapp_form"):
-                phone_number = st.text_input("Recipient Phone Number (with Country Code, e.g., +1234567890)")
-                selected_reminder_id = st.selectbox("Select Pending Tender ID for Alert", pending_df['id'].tolist())
-                
-                # Fetch details for the custom message payload
-                alert_target = pending_df[pending_df['id'] == selected_reminder_id].iloc[0]
-                custom_message = f"🚨 *Tender Reminder* 🚨\n\nHello, this is a reminder regarding the tender *{alert_target['tender_name']}* with *{alert_target['party']}*. Amount: ${alert_target['amount']:,.2f} is due on *{alert_target['due_date']}*. Please review."
-                
-                message_preview = st.text_area("Message Preview", value=custom_message, height=120)
-                send_time = st.time_input("Scheduled Send Time (Must be at least 2-3 minutes from now)")
-                send_alert = st.form_submit_button("🚀 Schedule WhatsApp Reminder")
-                
-                if send_alert:
-                    if not phone_number.startswith("+") or len(phone_number) < 10:
-                        st.error("❌ Please input a valid phone number format incorporating the active country code (+) prefix.")
-                    else:
-                        try:
-                            # Triggers pywhatkit to open WhatsApp Web and dispatch at designated time window
-                            kit.sendwhatmsg(phone_number, message_preview, send_time.hour, send_time.minute, wait_time=15)
-                            st.success(f"📱 WhatsApp task deployed! Web automation will process routing to {phone_number} at {send_time.strftime('%H:%M')}.")
-                        except Exception as e:
-                            st.error(f"❌ Automation runtime disruption: {e}")
