@@ -280,8 +280,8 @@ CFG = {
 
 
 def show(df, cols=None, height=None):
-    _s(st, "dataframe", df[cols or TABLE_COLS], column_config=CFG, hide_index=True,
-                 use_container_width=True, height=height)
+    kw = {"height": height} if height else {}
+    _s(st, "dataframe", df[cols or TABLE_COLS], column_config=CFG, hide_index=True, **kw)
 
 
 def opts(base, current):
