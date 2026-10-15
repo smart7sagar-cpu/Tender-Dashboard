@@ -111,6 +111,26 @@ st.markdown(
         display:inline-block; padding-bottom:3px; margin:20px 0 10px 0; letter-spacing:.5px;
     }}
     .footer {{text-align:center; color:#8A97AB; font-size:.8rem; margin-top:34px;}}
+
+    /* ---------- Data-entry fields: saaf dikhein (white bg + halka blue border) ---------- */
+    div[data-testid="stWidgetLabel"] p {{color:{NAVY}; font-weight:600; font-size:.86rem;}}
+    div[data-baseweb="input"], div[data-baseweb="textarea"], div[data-baseweb="select"] > div {{
+        background:#FFFFFF !important; border:1.5px solid #B8C6DF !important; border-radius:8px !important;
+        transition:border-color .15s, box-shadow .15s;
+    }}
+    div[data-baseweb="base-input"] {{background:transparent !important;}}
+    div[data-baseweb="input"]:hover, div[data-baseweb="textarea"]:hover, div[data-baseweb="select"] > div:hover {{
+        border-color:#8FA6CF !important;
+    }}
+    div[data-baseweb="input"]:focus-within, div[data-baseweb="textarea"]:focus-within,
+    div[data-baseweb="select"] > div:focus-within {{
+        border-color:{BLUE} !important; box-shadow:0 0 0 3px rgba(47,95,179,.18) !important;
+    }}
+    div[data-baseweb="input"] input, div[data-baseweb="textarea"] textarea {{color:#1B2A44 !important;}}
+
+    /* form ke start/end marker (sirf JS ke liye, dikhte nahi) */
+    div.element-container:has(.sss-mk), div[data-testid="stElementContainer"]:has(.sss-mk),
+    div[data-testid="element-container"]:has(.sss-mk) {{display:none;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -299,6 +319,64 @@ def opts(base, current):
 
 
 # ==================================================================
+# ENTER = AGLA FIELD  (browser-side JS, page ke andar listener lagata hai)
+# ==================================================================
+_NAV_JS = """
+(function () {
+  var p = window.parent, d = p.document;
+  if (p.__sssEnterNav) { d.removeEventListener('keydown', p.__sssEnterNav, true); }
+
+  function fields() {
+    var s = d.querySelector('.sss-form-start'), e = d.querySelector('.sss-form-end');
+    if (!s || !e) return null;
+    return Array.prototype.slice.call(d.querySelectorAll('input, textarea')).filter(function (el) {
+      var t = (el.type || '').toLowerCase();
+      if (el.disabled || t === 'hidden' || t === 'checkbox' || t === 'radio' || t === 'button' || t === 'submit') return false;
+      if (el.offsetParent === null) return false;
+      return (s.compareDocumentPosition(el) & 4) && (e.compareDocumentPosition(el) & 2);
+    });
+  }
+  function go(el) {
+    if (!el) return;
+    el.focus();
+    try { if (el.tagName === 'INPUT' && el.getAttribute('role') !== 'combobox') el.select(); } catch (x) {}
+  }
+  function onKey(ev) {
+    if (ev.key !== 'Enter' || ev.isComposing || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var el = ev.target;
+    if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+    var list = fields(); if (!list) return;
+    var i = list.indexOf(el); if (i < 0) return;
+    if (i === list.length - 1) return;                       // last field (Remarks): Streamlit ka save chalega
+    var isTA = el.tagName === 'TEXTAREA', isSel = el.getAttribute('role') === 'combobox';
+    if (isTA && ev.shiftKey) return;                          // Shift+Enter = nayi line
+    if (isSel && el.getAttribute('aria-expanded') === 'true') {   // dropdown khula hai: pehle option chunega, phir agla field
+      setTimeout(function () { var l = fields(), j = l ? l.indexOf(el) : -1; if (j >= 0 && j < l.length - 1) go(l[j + 1]); }, 150);
+      return;
+    }
+    if (isTA || isSel) { ev.preventDefault(); ev.stopPropagation(); go(list[i + 1]); return; }
+    setTimeout(function () { go(list[i + 1]); }, 0);          // text/number/date: value commit hone do, phir agla field
+  }
+  p.__sssEnterNav = onKey;
+  d.addEventListener('keydown', onKey, true);
+
+  if (__FOCUS_FIRST__) {                                      // record save hone ke baad pehle field me cursor
+    setTimeout(function () { var l = fields(); if (l && l.length) go(l[0]); }, 400);
+  }
+})();
+"""
+
+
+def enter_nav(focus_first=False):
+    try:
+        import streamlit.components.v1 as components
+        js = _NAV_JS.replace("__FOCUS_FIRST__", "true" if focus_first else "false")
+        components.html(f"<script>{js}</script>", height=0)
+    except Exception:
+        pass  # JS na chale to bhi app normal chalega (sirf Enter-se-next band rahega)
+
+
+# ==================================================================
 # RECORD FORM (shared by Add and Edit)
 # ==================================================================
 FIELD_KEYS = ["no", "name", "dept", "party", "cat", "loc", "wdesc", "est", "amt", "emd", "emds", "fee",
@@ -350,6 +428,7 @@ def record_form(prefix, rec=None, on_last=None, last_args=()):
     for k, v in defaults.items():
         _init(P(k), v)
 
+    st.markdown('<span class="sss-mk sss-form-start"></span>', unsafe_allow_html=True)
     st.markdown("**📌 Basic Details**")
     c1, c2, c3 = st.columns(3)
     c1.text_input("Tender No.", key=P("no"))
@@ -387,6 +466,8 @@ def record_form(prefix, rec=None, on_last=None, last_args=()):
         st.text_input("Remarks  ⬅ (LAST FIELD)", key=P("rem"), on_change=on_last, args=last_args)
     else:
         st.text_input("Remarks  ⬅ (LAST FIELD)", key=P("rem"))
+    st.markdown('<span class="sss-mk sss-form-end"></span>', unsafe_allow_html=True)
+    enter_nav(focus_first=bool(prefix == "add" and st.session_state.pop("focus_first", False)))
 
 
 def collect(prefix):
@@ -421,6 +502,7 @@ def save_new():
         for k in FIELD_KEYS:
             s.pop(f"add_{k}", None)
         s["ts_add"] = time.time()
+        s["focus_first"] = True
         s["msg_add"] = ("ok", "✅ Record save ho gaya! Naya record bhar sakte hain.")
     else:
         s["msg_add"] = ("err", "❌ Tender Name aur Party Name dono bharna zaroori hai.")
@@ -503,7 +585,10 @@ def record_manager(df, key):
     record_form(prefix, rec, on_last=update_enter, last_args=(int(sel), prefix))
     msg = st.session_state.get("msg_edit")
     if msg:
-        (st.success if msg[0] == "ok" else st.error)(msg[1])
+        if msg[0] == "ok":
+            st.success(msg[1])
+        else:
+            st.error(msg[1])
     b1, b2, b3 = st.columns([1, 1, 2])
     b1.button("🔄 Update Record", type="primary", key=f"{prefix}_upd", on_click=update_cb, args=(int(sel), prefix))
     b2.button("🗑️ Delete Record", key=f"{prefix}_del", on_click=delete_cb, args=(int(sel), prefix))
@@ -737,11 +822,20 @@ def render_page():
                 with t2:
                     up = d[(d["status"] == "Pending") & (d["participation"] == "Participated")
                            & (d["days_left"] >= 0) & (d["days_left"] <= 15)].sort_values("days_left")
-                    show(up) if not up.empty else st.success("Agle 15 din me koi deadline nahi.")
+                    if not up.empty:
+                        show(up)
+                    else:
+                        st.success("Agle 15 din me koi deadline nahi.")
                 with t3:
-                    show(overdue) if not overdue.empty else st.success("Koi overdue tender nahi.")
+                    if not overdue.empty:
+                        show(overdue)
+                    else:
+                        st.success("Koi overdue tender nahi.")
                 with t4:
-                    show(notp.head(10)) if not notp.empty else st.info("Koi record nahi.")
+                    if not notp.empty:
+                        show(notp.head(10))
+                    else:
+                        st.info("Koi record nahi.")
 
     # ==================================================================
     # ADD RECORD
@@ -749,13 +843,16 @@ def render_page():
     elif page == "Add Record":
         title("➕ Add New Tender Record")
         st.checkbox("⌨️ Last field (Remarks) me Enter dabane par save karo", value=True, key="enter_save")
-        st.caption("ℹ️ Beech ke kisi bhi field me Enter dabane se record save NAHI hoga. "
-                   "Save tabhi hoga jab last field (Remarks) me Enter dabayein, ya '💾 Save Record' button dabayein.")
+        st.caption("ℹ️ Enter dabane par cursor agle field me jayega (Shift+Enter = nayi line). "
+                   "Record tabhi save hoga jab last field (Remarks) me Enter dabayein, ya '💾 Save Record' button dabayein.")
         record_form("add", on_last=save_new_enter)
         st.button("💾 Save Record", type="primary", key="add_save_btn", on_click=save_new)
         msg = st.session_state.get("msg_add")
         if msg:
-            (st.success if msg[0] == "ok" else st.error)(msg[1])
+            if msg[0] == "ok":
+                st.success(msg[1])
+            else:
+                st.error(msg[1])
         if not ALL.empty:
             title("Last 5 Entries")
             show(ALL.head(5))
@@ -816,13 +913,25 @@ def render_page():
             st.write("")
             t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
             with t1:
-                show(won) if not won.empty else st.info("Koi record nahi.")
+                if not won.empty:
+                    show(won)
+                else:
+                    st.info("Koi record nahi.")
             with t2:
-                show(lost) if not lost.empty else st.info("Koi record nahi.")
+                if not lost.empty:
+                    show(lost)
+                else:
+                    st.info("Koi record nahi.")
             with t3:
-                show(pend) if not pend.empty else st.info("Koi record nahi.")
+                if not pend.empty:
+                    show(pend)
+                else:
+                    st.info("Koi record nahi.")
             with t4:
-                show(canc) if not canc.empty else st.info("Koi record nahi.")
+                if not canc.empty:
+                    show(canc)
+                else:
+                    st.info("Koi record nahi.")
             title("⚡ Quick Result Update")
             st.caption("Table me Result badlein aur 'Save Changes' dabayein.")
             quick_edit(part, "result", RESULTS, "qe_result")
