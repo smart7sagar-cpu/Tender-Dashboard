@@ -105,7 +105,6 @@ st.markdown(
         background:#FFFFFF !important; border:1.5px solid #B8C6DF !important; border-radius:8px !important;
     }}
     div[data-baseweb="input"] input, div[data-baseweb="textarea"] textarea {{color:#1B2A44 !important;}}
-    div.element-container:has(.sss-mk), div[data-testid="stElementContainer"]:has(.sss-mk) {{display:none;}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -129,14 +128,12 @@ DATE_COLS = ["publish_date", "due_date", "opening_date"]
 @st.cache_resource
 def get_conn():
     conn = sqlite3.connect("tenders.db", check_same_thread=False)
-    # Tenders table
     conn.execute("CREATE TABLE IF NOT EXISTS tenders (id INTEGER PRIMARY KEY AUTOINCREMENT)")
     existing = {r[1] for r in conn.execute("PRAGMA table_info(tenders)").fetchall()}
     for col, typ in DB_COLS.items():
         if col not in existing:
             conn.execute(f"ALTER TABLE tenders ADD COLUMN {col} {typ}")
             
-    # Users table create karein
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -144,12 +141,9 @@ def get_conn():
             role TEXT NOT NULL
         )
     """)
-    
-    # Default Admin account agar table khali hai to
     user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     if user_count == 0:
         conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ("admin", "admin123", "Admin"))
-        
     conn.commit()
     return conn
 
@@ -229,3 +223,7 @@ def donut(df, col, text, cmap, key, value=None):
     if df.empty:
         st.info(f"{text}: data nahi hai")
         return
+    g = df.groupby(col, as_index=False)[value].sum() if value else df.groupby(col).size().reset_index(name="count")
+    vals = value if value else "count"
+    fig = px.pie(g, names=col, values=vals, hole=0.58, color=col, color_discrete_map=cmap)
+    fig.update_traces(textinfo="percent", textfont_size=13)
