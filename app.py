@@ -6,6 +6,25 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import traceback
+
+
+# ==================================================================
+# COMPATIBILITY HELPERS (alag-alag Streamlit versions me error na aaye)
+# ==================================================================
+def do_rerun():
+    fn = getattr(st, "rerun", None) or getattr(st, "experimental_rerun")
+    fn()
+
+
+def _s(obj, name, *args, **kwargs):
+    """use_container_width purane versions me, width='stretch' naye versions me."""
+    kwargs.pop("use_container_width", None)
+    fn = getattr(obj, name)
+    try:
+        return fn(*args, use_container_width=True, **kwargs)
+    except Exception:
+        return fn(*args, width="stretch", **kwargs)
 
 # ==================================================================
 # PAGE CONFIG
@@ -233,7 +252,7 @@ def donut(df, col, text, cmap, key, value=None):
     total = g[vals].sum()
     fig.add_annotation(text=f"<b>{inr(total) if value else int(total)}</b>", showarrow=False,
                        font=dict(size=20, color=NAVY))
-    st.plotly_chart(style(fig, text, 340), use_container_width=True, key=key)
+    _s(st, "plotly_chart", style(fig, text, 340), use_container_width=True, key=key)
 
 
 TABLE_COLS = ["id", "tender_no", "tender_name", "department", "party", "category", "participation",
@@ -261,7 +280,7 @@ CFG = {
 
 
 def show(df, cols=None, height=None):
-    st.dataframe(df[cols or TABLE_COLS], column_config=CFG, hide_index=True,
+    _s(st, "dataframe", df[cols or TABLE_COLS], column_config=CFG, hide_index=True,
                  use_container_width=True, height=height)
 
 
@@ -387,7 +406,7 @@ def record_manager(df, key):
             if vals["tender_name"] and vals["party"]:
                 update_record(int(sel), vals)
                 st.success("✅ Record update ho gaya.")
-                st.rerun()
+                do_rerun()
             else:
                 st.error("Tender Name aur Party Name zaroori hai.")
         if dele:
@@ -395,14 +414,14 @@ def record_manager(df, key):
                 conn.execute("DELETE FROM tenders WHERE id=?", (int(sel),))
                 conn.commit()
                 st.warning(f"Record #{sel} delete ho gaya.")
-                st.rerun()
+                do_rerun()
             else:
                 st.error("Delete karne ke liye 'Delete confirm' tick karein.")
 
 
 def quick_edit(df, col, options, key):
     base = df[["id", "tender_no", "tender_name", "party", col]].reset_index(drop=True)
-    edited = st.data_editor(
+    edited = _s(st, "data_editor", 
         base, key=key, hide_index=True, use_container_width=True,
         disabled=["id", "tender_no", "tender_name", "party"],
         column_config={col: st.column_config.SelectboxColumn(col.replace("_", " ").title(), options=options,
@@ -416,7 +435,7 @@ def quick_edit(df, col, options, key):
                 n += 1
         conn.commit()
         st.success(f"✅ {n} record update hue.")
-        st.rerun()
+        do_rerun()
 
 
 def summary(df, by):
@@ -458,14 +477,14 @@ if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
 
 
-def go(p):
+def goto_page(p):
     st.session_state.page = p
 
 
 for row in (PAGES[:5], PAGES[5:]):
     cols = st.columns(5, gap="small")
     for col, p in zip(cols, row):
-        col.button(f"{ICONS[p]}  {p.upper()}", key=f"nav_{p}", on_click=go, args=(p,),
+        _s(col, "button", f"{ICONS[p]}  {p.upper()}", key=f"nav_{p}", on_click=goto_page, args=(p,),
                    type="primary" if st.session_state.page == p else "secondary",
                    use_container_width=True)
 
@@ -476,383 +495,396 @@ EMPTY_MSG = "Abhi koi record nahi hai. 'ADD RECORD' se pehla tender add karein."
 # ==================================================================
 # DASHBOARD
 # ==================================================================
-if page == "Dashboard":
-    if ALL.empty:
-        st.info(EMPTY_MSG)
-    else:
-        f1, f2, f3 = st.columns(3)
-        fy = f1.selectbox("Financial Year", ["All"] + sorted(ALL["fy"].unique(), reverse=True))
-        cat = f2.selectbox("Category", ["All"] + sorted([c for c in ALL["category"].unique() if c]))
-        pty = f3.selectbox("Party", ["All"] + sorted([c for c in ALL["party"].unique() if c]))
-        d = ALL.copy()
-        if fy != "All":
-            d = d[d["fy"] == fy]
-        if cat != "All":
-            d = d[d["category"] == cat]
-        if pty != "All":
-            d = d[d["party"] == pty]
-
-        if d.empty:
-            st.warning("Selected filter me koi record nahi.")
+def render_page():
+    if page == "Dashboard":
+        if ALL.empty:
+            st.info(EMPTY_MSG)
         else:
-            part = d[d["participation"] == "Participated"]
-            notp = d[d["participation"] == "Not Participated"]
-            won = part[part["result"] == "Won"]
-            lost = part[part["result"] == "Lost"]
-            pend = part[part["result"] == "Pending"]
-            decided = len(won) + len(lost)
-            win_rate = len(won) / decided * 100 if decided else 0.0
-            overdue = d[d["alert"] == "🔴 Overdue"]
-            due_soon = d[d["alert"] == "🟠 Due Soon"]
+            f1, f2, f3 = st.columns(3)
+            fy = f1.selectbox("Financial Year", ["All"] + sorted(ALL["fy"].unique(), reverse=True))
+            cat = f2.selectbox("Category", ["All"] + sorted([c for c in ALL["category"].unique() if c]))
+            pty = f3.selectbox("Party", ["All"] + sorted([c for c in ALL["party"].unique() if c]))
+            d = ALL.copy()
+            if fy != "All":
+                d = d[d["fy"] == fy]
+            if cat != "All":
+                d = d[d["category"] == cat]
+            if pty != "All":
+                d = d[d["party"] == pty]
 
-            title("Key Indicators")
-            a = st.columns(6)
-            kpi(a[0], "Total Tenders", len(d))
-            kpi(a[1], "Participated", len(part), "teal")
-            kpi(a[2], "Not Participated", len(notp), "grey")
-            kpi(a[3], "Won", len(won), "green")
-            kpi(a[4], "Lost", len(lost), "red")
-            kpi(a[5], "Win Rate", f"{win_rate:.1f}%", "purple")
+            if d.empty:
+                st.warning("Selected filter me koi record nahi.")
+            else:
+                part = d[d["participation"] == "Participated"]
+                notp = d[d["participation"] == "Not Participated"]
+                won = part[part["result"] == "Won"]
+                lost = part[part["result"] == "Lost"]
+                pend = part[part["result"] == "Pending"]
+                decided = len(won) + len(lost)
+                win_rate = len(won) / decided * 100 if decided else 0.0
+                overdue = d[d["alert"] == "🔴 Overdue"]
+                due_soon = d[d["alert"] == "🟠 Due Soon"]
+
+                title("Key Indicators")
+                a = st.columns(6)
+                kpi(a[0], "Total Tenders", len(d))
+                kpi(a[1], "Participated", len(part), "teal")
+                kpi(a[2], "Not Participated", len(notp), "grey")
+                kpi(a[3], "Won", len(won), "green")
+                kpi(a[4], "Lost", len(lost), "red")
+                kpi(a[5], "Win Rate", f"{win_rate:.1f}%", "purple")
+                st.write("")
+                b = st.columns(6)
+                kpi(b[0], "Total Quoted Value", inr(part["amount"].sum()))
+                kpi(b[1], "Won Value", inr(won["amount"].sum()), "green")
+                kpi(b[2], "Result Pending Value", inr(pend["amount"].sum()), "amber")
+                kpi(b[3], "EMD Locked (Paid)", inr(part[part["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
+                kpi(b[4], "Overdue", len(overdue), "red")
+                kpi(b[5], "Due in 7 Days", len(due_soon), "amber")
+
+                title("Participation & Results")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    donut(d, "participation", "Participation Split", CMAP_PART, "dn_part")
+                with c2:
+                    donut(part, "result", "Result Status (Participated)", CMAP_RESULT, "dn_res")
+                with c3:
+                    gauge = go.Figure(go.Indicator(
+                        mode="gauge+number", value=win_rate, number={"suffix": "%"},
+                        gauge={"axis": {"range": [0, 100]}, "bar": {"color": GREEN},
+                               "steps": [{"range": [0, 33], "color": "#F8D7D7"},
+                                         {"range": [33, 66], "color": "#FBEBC8"},
+                                         {"range": [66, 100], "color": "#D5F0E4"}]}))
+                    _s(st, "plotly_chart", style(gauge, "Win Rate (Won ÷ Decided)", 340), use_container_width=True, key="gauge")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    fdf_ = pd.DataFrame({"Stage": ["Total Tenders", "Participated", "Result Declared", "Won"],
+                                         "Count": [len(d), len(part), decided, len(won)]})
+                    fun = px.bar(fdf_, x="Count", y="Stage", orientation="h", color="Stage", text="Count",
+                                 color_discrete_sequence=[NAVY, BLUE, TEAL, GREEN])
+                    fun.update_layout(showlegend=False, yaxis=dict(autorange="reversed", title=""))
+                    _s(st, "plotly_chart", style(fun, "Tender Funnel", 360), key="funnel")
+                with c2:
+                    m = d.dropna(subset=["month"]).groupby(["month", "participation"]).size().reset_index(name="count")
+                    if m.empty:
+                        st.info("Monthly trend ke liye dates chahiye.")
+                    else:
+                        fig = px.bar(m, x="month", y="count", color="participation", barmode="stack",
+                                     color_discrete_map=CMAP_PART, labels={"month": "Month", "count": "Tenders"})
+                        _s(st, "plotly_chart", style(fig, "Monthly Tenders (by Submission Date)", 360),
+                                        use_container_width=True, key="monthly")
+
+                title("Financial Analysis")
+                c1, c2 = st.columns(2)
+                with c1:
+                    tp = part.groupby("party", as_index=False)["amount"].sum().sort_values("amount").tail(10)
+                    if tp.empty or tp["amount"].sum() == 0:
+                        st.info("Party-wise value ke liye Quoted Amount bharein.")
+                    else:
+                        fig = px.bar(tp, x="amount", y="party", orientation="h", color="amount",
+                                     color_continuous_scale=["#BBD0F2", BLUE, NAVY], labels={"amount": "Quoted Amount", "party": ""})
+                        fig.update_coloraxes(showscale=False)
+                        _s(st, "plotly_chart", style(fig, "Top 10 Parties by Quoted Value", 380),
+                                        use_container_width=True, key="topparty")
+                with c2:
+                    tm = d[d["amount"] > 0].copy()
+                    if tm.empty:
+                        st.info("Treemap ke liye Quoted Amount bharein.")
+                    else:
+                        tm["department"] = tm["department"].replace("", "Unknown")
+                        tm["category"] = tm["category"].replace("", "Unknown")
+                        tm["party"] = tm["party"].replace("", "Unknown")
+                        tm["root"] = "All"
+                        fig = px.treemap(tm, path=["root", "category", "department", "party"],
+                                         values="amount", color_discrete_sequence=PALETTE)
+                        _s(st, "plotly_chart", style(fig, "Value Map: Category → Department → Party", 380),
+                                        use_container_width=True, key="treemap")
+
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    donut(part[part["emd_amount"] > 0], "emd_status", "EMD by Amount", CMAP_EMD, "dn_emd", "emd_amount")
+                with c2:
+                    donut(d, "status", "Work Status", CMAP_STATUS, "dn_stat")
+                with c3:
+                    comp = won.copy()
+                    comp = comp[(comp["estimated_cost"] > 0) & (comp["amount"] > 0)]
+                    if comp.empty:
+                        st.info("Estimated vs Quoted chart ke liye Won tenders me dono amount chahiye.")
+                    else:
+                        comp = comp.head(8)
+                        fig = go.Figure()
+                        fig.add_bar(x=comp["tender_name"], y=comp["estimated_cost"], name="Estimated", marker_color=GREY)
+                        fig.add_bar(x=comp["tender_name"], y=comp["amount"], name="Quoted", marker_color=BLUE)
+                        fig.update_layout(barmode="group")
+                        _s(st, "plotly_chart", style(fig, "Won: Estimated vs Quoted", 340), use_container_width=True, key="estq")
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    al = d.groupby("alert").size().reset_index(name="count")
+                    fig = px.bar(al, x="alert", y="count", color="alert", labels={"alert": "", "count": "Tenders"},
+                                 color_discrete_map={"🔴 Overdue": RED, "🟠 Due Soon": AMBER, "🟢 On Track": GREEN,
+                                                     "✅ Completed": TEAL, "⚪ Not Participated": GREY,
+                                                     "⚫ Closed": "#555", "⚪ No Date": GREY})
+                    fig.update_layout(showlegend=False)
+                    _s(st, "plotly_chart", style(fig, "Deadline Alert Summary", 340), use_container_width=True, key="alerts")
+                with c2:
+                    fyv = d.groupby("fy").agg(Quoted=("amount", "sum")).reset_index()
+                    fyw = won.groupby("fy")["amount"].sum().reset_index(name="Won")
+                    fyv = fyv.merge(fyw, on="fy", how="left").fillna(0)
+                    fig = px.bar(fyv, x="fy", y=["Quoted", "Won"], barmode="group",
+                                 color_discrete_sequence=[BLUE, GREEN], labels={"fy": "Financial Year", "value": "Amount"})
+                    _s(st, "plotly_chart", style(fig, "Financial Year-wise Value", 340), use_container_width=True, key="fyv")
+
+                title("Quick Tables")
+                t1, t2, t3, t4 = st.tabs(["🆕 Recent Tenders", "⏰ Due in next 15 days", "🔴 Overdue", "🚫 Not Participated"])
+                with t1:
+                    show(d.head(10))
+                with t2:
+                    up = d[(d["status"] == "Pending") & (d["participation"] == "Participated")
+                           & (d["days_left"] >= 0) & (d["days_left"] <= 15)].sort_values("days_left")
+                    show(up) if not up.empty else st.success("Agle 15 din me koi deadline nahi.")
+                with t3:
+                    show(overdue) if not overdue.empty else st.success("Koi overdue tender nahi.")
+                with t4:
+                    show(notp.head(10)) if not notp.empty else st.info("Koi record nahi.")
+
+    # ==================================================================
+    # ADD RECORD
+    # ==================================================================
+    elif page == "Add Record":
+        title("➕ Add New Tender Record")
+        with st.form("add_form", clear_on_submit=True):
+            vals = record_form("add")
+            save = st.form_submit_button("💾 Save Record", type="primary")
+            if save:
+                if vals["tender_name"] and vals["party"]:
+                    vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    insert_record(vals)
+                    st.success("✅ Record save ho gaya!")
+                else:
+                    st.error("❌ Tender Name aur Party Name dono bharna zaroori hai.")
+        if not ALL.empty:
+            title("Last 5 Entries")
+            show(ALL.head(5))
+
+    # ==================================================================
+    # VIEW / PARTICIPATED / NOT PARTICIPATED
+    # ==================================================================
+    elif page == "View Records":
+        title("📋 All Tender Records")
+        record_manager(ALL, "all")
+
+    elif page == "Participated":
+        title("✅ Participated Tenders")
+        if not ALL.empty:
+            p = ALL[ALL["participation"] == "Participated"]
+            k = st.columns(4)
+            kpi(k[0], "Participated", len(p), "teal")
+            kpi(k[1], "Quoted Value", inr(p["amount"].sum()))
+            kpi(k[2], "Result Pending", len(p[p["result"] == "Pending"]), "amber")
+            kpi(k[3], "Won", len(p[p["result"] == "Won"]), "green")
             st.write("")
-            b = st.columns(6)
-            kpi(b[0], "Total Quoted Value", inr(part["amount"].sum()))
-            kpi(b[1], "Won Value", inr(won["amount"].sum()), "green")
-            kpi(b[2], "Result Pending Value", inr(pend["amount"].sum()), "amber")
-            kpi(b[3], "EMD Locked (Paid)", inr(part[part["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
-            kpi(b[4], "Overdue", len(overdue), "red")
-            kpi(b[5], "Due in 7 Days", len(due_soon), "amber")
+            record_manager(p, "part")
+        else:
+            st.info(EMPTY_MSG)
 
-            title("Participation & Results")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                donut(d, "participation", "Participation Split", CMAP_PART, "dn_part")
-            with c2:
-                donut(part, "result", "Result Status (Participated)", CMAP_RESULT, "dn_res")
-            with c3:
-                gauge = go.Figure(go.Indicator(
-                    mode="gauge+number", value=win_rate, number={"suffix": "%"},
-                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": GREEN},
-                           "steps": [{"range": [0, 33], "color": "#F8D7D7"},
-                                     {"range": [33, 66], "color": "#FBEBC8"},
-                                     {"range": [66, 100], "color": "#D5F0E4"}]}))
-                st.plotly_chart(style(gauge, "Win Rate (Won ÷ Decided)", 340), use_container_width=True, key="gauge")
+    elif page == "Not Participated":
+        title("🚫 Not Participated Tenders")
+        if not ALL.empty:
+            n = ALL[ALL["participation"] == "Not Participated"]
+            k = st.columns(3)
+            kpi(k[0], "Not Participated", len(n), "grey")
+            kpi(k[1], "Estimated Value Missed", inr(n["estimated_cost"].sum()), "red")
+            kpi(k[2], "Unique Parties", n["party"].nunique(), "purple")
+            st.write("")
+            if not n.empty:
+                r = n.assign(reason=n["not_part_reason"].replace("", "Not specified")).groupby("reason").size().reset_index(name="count")
+                fig = px.pie(r, names="reason", values="count", hole=0.55, color_discrete_sequence=PALETTE)
+                _s(st, "plotly_chart", style(fig, "Reasons for Not Participating", 340), use_container_width=True, key="reasons")
+            record_manager(n, "notpart")
+        else:
+            st.info(EMPTY_MSG)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                fun = go.Figure(go.Funnel(
-                    y=["Total Tenders", "Participated", "Result Declared", "Won"],
-                    x=[len(d), len(part), decided, len(won)],
-                    marker={"color": [NAVY, BLUE, TEAL, GREEN]}, textinfo="value+percent initial"))
-                st.plotly_chart(style(fun, "Tender Funnel", 360), use_container_width=True, key="funnel")
-            with c2:
-                m = d.dropna(subset=["month"]).groupby(["month", "participation"]).size().reset_index(name="count")
-                if m.empty:
-                    st.info("Monthly trend ke liye dates chahiye.")
-                else:
-                    fig = px.bar(m, x="month", y="count", color="participation", barmode="stack",
-                                 color_discrete_map=CMAP_PART, labels={"month": "Month", "count": "Tenders"})
-                    st.plotly_chart(style(fig, "Monthly Tenders (by Submission Date)", 360),
-                                    use_container_width=True, key="monthly")
-
-            title("Financial Analysis")
-            c1, c2 = st.columns(2)
-            with c1:
-                tp = part.groupby("party", as_index=False)["amount"].sum().sort_values("amount").tail(10)
-                if tp.empty or tp["amount"].sum() == 0:
-                    st.info("Party-wise value ke liye Quoted Amount bharein.")
-                else:
-                    fig = px.bar(tp, x="amount", y="party", orientation="h", color="amount",
-                                 color_continuous_scale=["#BBD0F2", BLUE, NAVY], labels={"amount": "Quoted Amount", "party": ""})
-                    fig.update_coloraxes(showscale=False)
-                    st.plotly_chart(style(fig, "Top 10 Parties by Quoted Value", 380),
-                                    use_container_width=True, key="topparty")
-            with c2:
-                tm = d[d["amount"] > 0].copy()
-                if tm.empty:
-                    st.info("Treemap ke liye Quoted Amount bharein.")
-                else:
-                    tm["department"] = tm["department"].replace("", "Unknown")
-                    tm["category"] = tm["category"].replace("", "Unknown")
-                    fig = px.treemap(tm, path=[px.Constant("All"), "category", "department", "party"],
-                                     values="amount", color_discrete_sequence=PALETTE)
-                    st.plotly_chart(style(fig, "Value Map: Category → Department → Party", 380),
-                                    use_container_width=True, key="treemap")
-
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                donut(part[part["emd_amount"] > 0], "emd_status", "EMD by Amount", CMAP_EMD, "dn_emd", "emd_amount")
-            with c2:
-                donut(d, "status", "Work Status", CMAP_STATUS, "dn_stat")
-            with c3:
-                comp = won.copy()
-                comp = comp[(comp["estimated_cost"] > 0) & (comp["amount"] > 0)]
-                if comp.empty:
-                    st.info("Estimated vs Quoted chart ke liye Won tenders me dono amount chahiye.")
-                else:
-                    comp = comp.head(8)
-                    fig = go.Figure()
-                    fig.add_bar(x=comp["tender_name"], y=comp["estimated_cost"], name="Estimated", marker_color=GREY)
-                    fig.add_bar(x=comp["tender_name"], y=comp["amount"], name="Quoted", marker_color=BLUE)
-                    fig.update_layout(barmode="group")
-                    st.plotly_chart(style(fig, "Won: Estimated vs Quoted", 340), use_container_width=True, key="estq")
-
-            c1, c2 = st.columns(2)
-            with c1:
-                al = d.groupby("alert").size().reset_index(name="count")
-                fig = px.bar(al, x="alert", y="count", color="alert", labels={"alert": "", "count": "Tenders"},
-                             color_discrete_map={"🔴 Overdue": RED, "🟠 Due Soon": AMBER, "🟢 On Track": GREEN,
-                                                 "✅ Completed": TEAL, "⚪ Not Participated": GREY,
-                                                 "⚫ Closed": "#555", "⚪ No Date": GREY})
-                fig.update_layout(showlegend=False)
-                st.plotly_chart(style(fig, "Deadline Alert Summary", 340), use_container_width=True, key="alerts")
-            with c2:
-                fyv = d.groupby("fy").agg(Quoted=("amount", "sum")).reset_index()
-                fyw = won.groupby("fy")["amount"].sum().reset_index(name="Won")
-                fyv = fyv.merge(fyw, on="fy", how="left").fillna(0)
-                fig = px.bar(fyv, x="fy", y=["Quoted", "Won"], barmode="group",
-                             color_discrete_sequence=[BLUE, GREEN], labels={"fy": "Financial Year", "value": "Amount"})
-                st.plotly_chart(style(fig, "Financial Year-wise Value", 340), use_container_width=True, key="fyv")
-
-            title("Quick Tables")
-            t1, t2, t3, t4 = st.tabs(["🆕 Recent Tenders", "⏰ Due in next 15 days", "🔴 Overdue", "🚫 Not Participated"])
+    # ==================================================================
+    # RESULTS
+    # ==================================================================
+    elif page == "Results":
+        title("🏆 Tender Results")
+        part = ALL[ALL["participation"] == "Participated"] if not ALL.empty else ALL
+        if part.empty:
+            st.info("Participated tenders nahi hain.")
+        else:
+            won, lost = part[part["result"] == "Won"], part[part["result"] == "Lost"]
+            pend, canc = part[part["result"] == "Pending"], part[part["result"] == "Cancelled"]
+            dec = len(won) + len(lost)
+            k = st.columns(5)
+            kpi(k[0], "Won", len(won), "green")
+            kpi(k[1], "Lost", len(lost), "red")
+            kpi(k[2], "Pending", len(pend), "amber")
+            kpi(k[3], "Cancelled", len(canc), "grey")
+            kpi(k[4], "Win Rate", f"{(len(won) / dec * 100 if dec else 0):.1f}%", "purple")
+            st.write("")
+            t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
             with t1:
-                show(d.head(10))
+                show(won) if not won.empty else st.info("Koi record nahi.")
             with t2:
-                up = d[(d["status"] == "Pending") & (d["participation"] == "Participated")
-                       & (d["days_left"] >= 0) & (d["days_left"] <= 15)].sort_values("days_left")
-                show(up) if not up.empty else st.success("Agle 15 din me koi deadline nahi.")
+                show(lost) if not lost.empty else st.info("Koi record nahi.")
             with t3:
-                show(overdue) if not overdue.empty else st.success("Koi overdue tender nahi.")
+                show(pend) if not pend.empty else st.info("Koi record nahi.")
             with t4:
-                show(notp.head(10)) if not notp.empty else st.info("Koi record nahi.")
+                show(canc) if not canc.empty else st.info("Koi record nahi.")
+            title("⚡ Quick Result Update")
+            st.caption("Table me Result badlein aur 'Save Changes' dabayein.")
+            quick_edit(part, "result", RESULTS, "qe_result")
 
-# ==================================================================
-# ADD RECORD
-# ==================================================================
-elif page == "Add Record":
-    title("➕ Add New Tender Record")
-    with st.form("add_form", clear_on_submit=True):
-        vals = record_form("add")
-        save = st.form_submit_button("💾 Save Record", type="primary")
-        if save:
-            if vals["tender_name"] and vals["party"]:
-                vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                insert_record(vals)
-                st.success("✅ Record save ho gaya!")
-            else:
-                st.error("❌ Tender Name aur Party Name dono bharna zaroori hai.")
-    if not ALL.empty:
-        title("Last 5 Entries")
-        show(ALL.head(5))
+    # ==================================================================
+    # EMD TRACKER
+    # ==================================================================
+    elif page == "EMD Tracker":
+        title("💳 EMD Tracker")
+        part = ALL[(ALL["participation"] == "Participated")] if not ALL.empty else ALL
+        if part.empty:
+            st.info("Participated tenders nahi hain.")
+        else:
+            e = part[part["emd_amount"] > 0]
+            k = st.columns(5)
+            kpi(k[0], "Total EMD", inr(e["emd_amount"].sum()))
+            kpi(k[1], "Paid (Locked)", inr(e[e["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
+            kpi(k[2], "Refunded", inr(e[e["emd_status"] == "Refunded"]["emd_amount"].sum()), "green")
+            kpi(k[3], "Pending", inr(e[e["emd_status"] == "Pending"]["emd_amount"].sum()), "amber")
+            kpi(k[4], "Forfeited", inr(e[e["emd_status"] == "Forfeited"]["emd_amount"].sum()), "red")
+            st.write("")
+            c1, c2 = st.columns(2)
+            with c1:
+                donut(e, "emd_status", "EMD by Status (Amount)", CMAP_EMD, "emd_d", "emd_amount")
+            with c2:
+                if not e.empty:
+                    g = e.groupby(["party", "emd_status"], as_index=False)["emd_amount"].sum()
+                    fig = px.bar(g, x="party", y="emd_amount", color="emd_status", color_discrete_map=CMAP_EMD,
+                                 labels={"emd_amount": "EMD", "party": "Party"})
+                    _s(st, "plotly_chart", style(fig, "EMD by Party", 340), use_container_width=True, key="emd_b")
+            title("⚡ Quick EMD Status Update")
+            quick_edit(part, "emd_status", EMD_STATUS, "qe_emd")
 
-# ==================================================================
-# VIEW / PARTICIPATED / NOT PARTICIPATED
-# ==================================================================
-elif page == "View Records":
-    title("📋 All Tender Records")
-    record_manager(ALL, "all")
+    # ==================================================================
+    # REPORTS
+    # ==================================================================
+    elif page == "Reports":
+        title("📈 Reports & Analysis")
+        if ALL.empty:
+            st.info(EMPTY_MSG)
+        else:
+            tabs = st.tabs(["Party-wise", "Department-wise", "Category-wise", "Financial Year-wise", "Monthly"])
+            for tab, (by, label) in zip(tabs, [("party", "Party"), ("department", "Department"),
+                                               ("category", "Category"), ("fy", "Financial Year"),
+                                               ("month", "Month")]):
+                with tab:
+                    src = ALL.dropna(subset=["month"]) if by == "month" else ALL
+                    g = summary(src, by)
+                    _s(st, "dataframe", g.rename(columns={by: label, "Not_Participated": "Not Participated",
+                                                   "Quoted_Value": "Quoted Value", "Won_Value": "Won Value"}),
+                                 hide_index=True, use_container_width=True)
+                    fig = px.bar(g, x=by, y=["Quoted_Value", "Won_Value"], barmode="group",
+                                 color_discrete_sequence=[BLUE, GREEN], labels={by: label, "value": "Amount"})
+                    _s(st, "plotly_chart", style(fig, f"{label}-wise Quoted vs Won Value", 360),
+                                    use_container_width=True, key=f"rep_{by}")
 
-elif page == "Participated":
-    title("✅ Participated Tenders")
-    if not ALL.empty:
-        p = ALL[ALL["participation"] == "Participated"]
-        k = st.columns(4)
-        kpi(k[0], "Participated", len(p), "teal")
-        kpi(k[1], "Quoted Value", inr(p["amount"].sum()))
-        kpi(k[2], "Result Pending", len(p[p["result"] == "Pending"]), "amber")
-        kpi(k[3], "Won", len(p[p["result"] == "Won"]), "green")
-        st.write("")
-        record_manager(p, "part")
-    else:
-        st.info(EMPTY_MSG)
+    # ==================================================================
+    # EXPORT & REMINDER
+    # ==================================================================
+    elif page == "Export & Reminder":
+        if ALL.empty:
+            st.info("Export ya reminder ke liye koi data nahi hai.")
+        else:
+            title("🔔 Reminders")
+            days = st.slider("Agle kitne din ke tenders dikhane hain?", 1, 60, 7)
+            act = ALL[(ALL["participation"] == "Participated") & (ALL["status"] == "Pending")
+                      & ~ALL["result"].isin(["Lost", "Cancelled"])]
+            overdue = act[act["days_left"] < 0]
+            upcoming = act[(act["days_left"] >= 0) & (act["days_left"] <= days)].sort_values("days_left")
+            k = st.columns(2)
+            kpi(k[0], "Overdue Tenders", len(overdue), "red")
+            kpi(k[1], f"Due in next {days} days", len(upcoming), "amber")
+            st.write("")
+            if not overdue.empty:
+                st.error(f"🔴 {len(overdue)} tender(s) ki due date nikal chuki hai!")
+                show(overdue)
+            if not upcoming.empty:
+                st.warning(f"🟠 {len(upcoming)} tender(s) {days} din ke andar due hain.")
+                show(upcoming)
+            if overdue.empty and upcoming.empty:
+                st.success("🟢 Koi urgent reminder nahi.")
 
-elif page == "Not Participated":
-    title("🚫 Not Participated Tenders")
-    if not ALL.empty:
-        n = ALL[ALL["participation"] == "Not Participated"]
-        k = st.columns(3)
-        kpi(k[0], "Not Participated", len(n), "grey")
-        kpi(k[1], "Estimated Value Missed", inr(n["estimated_cost"].sum()), "red")
-        kpi(k[2], "Unique Parties", n["party"].nunique(), "purple")
-        st.write("")
-        if not n.empty:
-            r = n.assign(reason=n["not_part_reason"].replace("", "Not specified")).groupby("reason").size().reset_index(name="count")
-            fig = px.pie(r, names="reason", values="count", hole=0.55, color_discrete_sequence=PALETTE)
-            st.plotly_chart(style(fig, "Reasons for Not Participating", 340), use_container_width=True, key="reasons")
-        record_manager(n, "notpart")
-    else:
-        st.info(EMPTY_MSG)
+            title("📤 Export Data")
+            exp = ALL[[c for c in ALL_COLS if c not in ("days_left", "alert")]].copy()
+            for c in DATE_COLS:
+                exp[c] = exp[c].dt.strftime("%Y-%m-%d")
+            stamp = datetime.today().strftime("%Y%m%d")
+            d1, d2 = st.columns(2)
+            _s(d1, "download_button", "📥 Download CSV (All)", exp.to_csv(index=False).encode("utf-8-sig"),
+                               file_name=f"tenders_{stamp}.csv", mime="text/csv", use_container_width=True)
+            try:
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+                    exp.to_excel(xw, index=False, sheet_name="All Tenders")
+                    exp[exp["participation"] == "Participated"].to_excel(xw, index=False, sheet_name="Participated")
+                    exp[exp["participation"] == "Not Participated"].to_excel(xw, index=False, sheet_name="Not Participated")
+                    exp[exp["result"] == "Won"].to_excel(xw, index=False, sheet_name="Won")
+                    exp[exp["result"] == "Lost"].to_excel(xw, index=False, sheet_name="Lost")
+                _s(d2, "download_button", "📥 Download Excel (Multi-sheet)", buf.getvalue(), file_name=f"tenders_{stamp}.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   use_container_width=True)
+            except Exception:
+                d2.caption("Excel export ke liye requirements.txt me `openpyxl` add karein.")
 
-# ==================================================================
-# RESULTS
-# ==================================================================
-elif page == "Results":
-    title("🏆 Tender Results")
-    part = ALL[ALL["participation"] == "Participated"] if not ALL.empty else ALL
-    if part.empty:
-        st.info("Participated tenders nahi hain.")
-    else:
-        won, lost = part[part["result"] == "Won"], part[part["result"] == "Lost"]
-        pend, canc = part[part["result"] == "Pending"], part[part["result"] == "Cancelled"]
-        dec = len(won) + len(lost)
-        k = st.columns(5)
-        kpi(k[0], "Won", len(won), "green")
-        kpi(k[1], "Lost", len(lost), "red")
-        kpi(k[2], "Pending", len(pend), "amber")
-        kpi(k[3], "Cancelled", len(canc), "grey")
-        kpi(k[4], "Win Rate", f"{(len(won) / dec * 100 if dec else 0):.1f}%", "purple")
-        st.write("")
-        t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
-        with t1:
-            show(won) if not won.empty else st.info("Koi record nahi.")
-        with t2:
-            show(lost) if not lost.empty else st.info("Koi record nahi.")
-        with t3:
-            show(pend) if not pend.empty else st.info("Koi record nahi.")
-        with t4:
-            show(canc) if not canc.empty else st.info("Koi record nahi.")
-        title("⚡ Quick Result Update")
-        st.caption("Table me Result badlein aur 'Save Changes' dabayein.")
-        quick_edit(part, "result", RESULTS, "qe_result")
-
-# ==================================================================
-# EMD TRACKER
-# ==================================================================
-elif page == "EMD Tracker":
-    title("💳 EMD Tracker")
-    part = ALL[(ALL["participation"] == "Participated")] if not ALL.empty else ALL
-    if part.empty:
-        st.info("Participated tenders nahi hain.")
-    else:
-        e = part[part["emd_amount"] > 0]
-        k = st.columns(5)
-        kpi(k[0], "Total EMD", inr(e["emd_amount"].sum()))
-        kpi(k[1], "Paid (Locked)", inr(e[e["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
-        kpi(k[2], "Refunded", inr(e[e["emd_status"] == "Refunded"]["emd_amount"].sum()), "green")
-        kpi(k[3], "Pending", inr(e[e["emd_status"] == "Pending"]["emd_amount"].sum()), "amber")
-        kpi(k[4], "Forfeited", inr(e[e["emd_status"] == "Forfeited"]["emd_amount"].sum()), "red")
-        st.write("")
-        c1, c2 = st.columns(2)
-        with c1:
-            donut(e, "emd_status", "EMD by Status (Amount)", CMAP_EMD, "emd_d", "emd_amount")
-        with c2:
-            if not e.empty:
-                g = e.groupby(["party", "emd_status"], as_index=False)["emd_amount"].sum()
-                fig = px.bar(g, x="party", y="emd_amount", color="emd_status", color_discrete_map=CMAP_EMD,
-                             labels={"emd_amount": "EMD", "party": "Party"})
-                st.plotly_chart(style(fig, "EMD by Party", 340), use_container_width=True, key="emd_b")
-        title("⚡ Quick EMD Status Update")
-        quick_edit(part, "emd_status", EMD_STATUS, "qe_emd")
-
-# ==================================================================
-# REPORTS
-# ==================================================================
-elif page == "Reports":
-    title("📈 Reports & Analysis")
-    if ALL.empty:
-        st.info(EMPTY_MSG)
-    else:
-        tabs = st.tabs(["Party-wise", "Department-wise", "Category-wise", "Financial Year-wise", "Monthly"])
-        for tab, (by, label) in zip(tabs, [("party", "Party"), ("department", "Department"),
-                                           ("category", "Category"), ("fy", "Financial Year"),
-                                           ("month", "Month")]):
-            with tab:
-                src = ALL.dropna(subset=["month"]) if by == "month" else ALL
-                g = summary(src, by)
-                st.dataframe(g.rename(columns={by: label, "Not_Participated": "Not Participated",
-                                               "Quoted_Value": "Quoted Value", "Won_Value": "Won Value"}),
-                             hide_index=True, use_container_width=True)
-                fig = px.bar(g, x=by, y=["Quoted_Value", "Won_Value"], barmode="group",
-                             color_discrete_sequence=[BLUE, GREEN], labels={by: label, "value": "Amount"})
-                st.plotly_chart(style(fig, f"{label}-wise Quoted vs Won Value", 360),
-                                use_container_width=True, key=f"rep_{by}")
-
-# ==================================================================
-# EXPORT & REMINDER
-# ==================================================================
-elif page == "Export & Reminder":
-    if ALL.empty:
-        st.info("Export ya reminder ke liye koi data nahi hai.")
-    else:
-        title("🔔 Reminders")
-        days = st.slider("Agle kitne din ke tenders dikhane hain?", 1, 60, 7)
-        act = ALL[(ALL["participation"] == "Participated") & (ALL["status"] == "Pending")
-                  & ~ALL["result"].isin(["Lost", "Cancelled"])]
-        overdue = act[act["days_left"] < 0]
-        upcoming = act[(act["days_left"] >= 0) & (act["days_left"] <= days)].sort_values("days_left")
-        k = st.columns(2)
-        kpi(k[0], "Overdue Tenders", len(overdue), "red")
-        kpi(k[1], f"Due in next {days} days", len(upcoming), "amber")
-        st.write("")
-        if not overdue.empty:
-            st.error(f"🔴 {len(overdue)} tender(s) ki due date nikal chuki hai!")
-            show(overdue)
-        if not upcoming.empty:
-            st.warning(f"🟠 {len(upcoming)} tender(s) {days} din ke andar due hain.")
-            show(upcoming)
-        if overdue.empty and upcoming.empty:
-            st.success("🟢 Koi urgent reminder nahi.")
-
-        title("📤 Export Data")
-        exp = ALL[[c for c in ALL_COLS if c not in ("days_left", "alert")]].copy()
-        for c in DATE_COLS:
-            exp[c] = exp[c].dt.strftime("%Y-%m-%d")
-        stamp = datetime.today().strftime("%Y%m%d")
-        d1, d2 = st.columns(2)
-        d1.download_button("📥 Download CSV (All)", exp.to_csv(index=False).encode("utf-8-sig"),
-                           file_name=f"tenders_{stamp}.csv", mime="text/csv", use_container_width=True)
+    # ==================================================================
+    # BACKUP & IMPORT
+    # ==================================================================
+    elif page == "Backup & Import":
+        title("💾 Database Backup")
         try:
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
-                exp.to_excel(xw, index=False, sheet_name="All Tenders")
-                exp[exp["participation"] == "Participated"].to_excel(xw, index=False, sheet_name="Participated")
-                exp[exp["participation"] == "Not Participated"].to_excel(xw, index=False, sheet_name="Not Participated")
-                exp[exp["result"] == "Won"].to_excel(xw, index=False, sheet_name="Won")
-                exp[exp["result"] == "Lost"].to_excel(xw, index=False, sheet_name="Lost")
-            d2.download_button("📥 Download Excel (Multi-sheet)", buf.getvalue(), file_name=f"tenders_{stamp}.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
+            with open("tenders.db", "rb") as f:
+                _s(st, "download_button", "📥 Download Database Backup (tenders.db)", f.read(),
+                                   file_name=f"tenders_backup_{datetime.today().strftime('%Y%m%d')}.db",
+                                   use_container_width=True)
         except Exception:
-            d2.caption("Excel export ke liye requirements.txt me `openpyxl` add karein.")
+            st.warning("Database file abhi available nahi hai.")
+        st.caption("Streamlit Cloud par restart ke baad database reset ho sakta hai, isliye regular backup lete rahein.")
 
-# ==================================================================
-# BACKUP & IMPORT
-# ==================================================================
-elif page == "Backup & Import":
-    title("💾 Database Backup")
-    try:
-        with open("tenders.db", "rb") as f:
-            st.download_button("📥 Download Database Backup (tenders.db)", f.read(),
-                               file_name=f"tenders_backup_{datetime.today().strftime('%Y%m%d')}.db",
-                               use_container_width=True)
-    except Exception:
-        st.warning("Database file abhi available nahi hai.")
-    st.caption("Streamlit Cloud par restart ke baad database reset ho sakta hai, isliye regular backup lete rahein.")
+        title("📥 Import from CSV / Excel")
+        st.caption("File me ye columns ho sakte hain: " + ", ".join(DB_COLS.keys()) + ". 'tender_name' zaroori hai.")
+        up = st.file_uploader("File upload karein", type=["csv", "xlsx"])
+        if up:
+            try:
+                idf = pd.read_csv(up) if up.name.endswith(".csv") else pd.read_excel(up)
+                keep = [c for c in idf.columns if c in DB_COLS]
+                if "tender_name" not in keep:
+                    st.error("'tender_name' column nahi mila.")
+                else:
+                    idf = idf[keep].copy()
+                    for c in DATE_COLS:
+                        if c in idf:
+                            idf[c] = pd.to_datetime(idf[c], errors="coerce").dt.strftime("%Y-%m-%d")
+                    st.write(f"{len(idf)} row(s) import ke liye ready:")
+                    _s(st, "dataframe", idf.head(10), hide_index=True, use_container_width=True)
+                    if st.button("✅ Import Karein", type="primary"):
+                        idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        idf.to_sql("tenders", conn, if_exists="append", index=False)
+                        conn.commit()
+                        st.success("Import complete!")
+                        do_rerun()
+            except Exception as ex:
+                st.error(f"File read nahi ho payi: {ex}")
 
-    title("📥 Import from CSV / Excel")
-    st.caption("File me ye columns ho sakte hain: " + ", ".join(DB_COLS.keys()) + ". 'tender_name' zaroori hai.")
-    up = st.file_uploader("File upload karein", type=["csv", "xlsx"])
-    if up:
-        try:
-            idf = pd.read_csv(up) if up.name.endswith(".csv") else pd.read_excel(up)
-            keep = [c for c in idf.columns if c in DB_COLS]
-            if "tender_name" not in keep:
-                st.error("'tender_name' column nahi mila.")
-            else:
-                idf = idf[keep].copy()
-                for c in DATE_COLS:
-                    if c in idf:
-                        idf[c] = pd.to_datetime(idf[c], errors="coerce").dt.strftime("%Y-%m-%d")
-                st.write(f"{len(idf)} row(s) import ke liye ready:")
-                st.dataframe(idf.head(10), hide_index=True, use_container_width=True)
-                if st.button("✅ Import Karein", type="primary"):
-                    idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    idf.to_sql("tenders", conn, if_exists="append", index=False)
-                    conn.commit()
-                    st.success("Import complete!")
-                    st.rerun()
-        except Exception as ex:
-            st.error(f"File read nahi ho payi: {ex}")
+
+
+try:
+    render_page()
+except Exception as ex:
+    st.error(f"⚠️ Page load me problem aayi: {type(ex).__name__}: {ex}")
+    with st.expander("Technical details"):
+        st.code(traceback.format_exc())
 
 st.markdown(
     f'<div class="footer">© SSS Tender Management Portal • {datetime.today().year}</div>',
