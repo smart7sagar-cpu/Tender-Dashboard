@@ -96,11 +96,10 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
-# SYSTEM DATABASE ENGINE (WITH AUTOMATIC DATA RECOVERY & COMPATIBILITY)
+# SYSTEM DATABASE ENGINE (ERROR REPAIRED & STABLE)
 # ------------------------------------------------------------------
 @st.cache_resource
 def get_conn():
-    # Enforcing master production name to completely reset synchronization path leaks
     conn = sqlite3.connect("tenders_master.db", check_same_thread=False)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS tenders (
@@ -115,16 +114,20 @@ def get_conn():
     )
     conn.commit()
 
-    # --- BRAIN ENGINE: Automatic Recovery from old database filenames ---
+    # --- AUTOMATIC DATA RECOVERY FROM OLD DATABASES ---
     for old_db in ["tenders_v3.db", "tenders_v2.db", "tenders.db"]:
         try:
             old_conn = sqlite3.connect(old_db)
             old_df = pd.read_sql("SELECT * FROM tenders", old_conn)
             if not old_df.empty:
                 for _, row in old_df.iterrows():
-                    # Check if already exists to prevent duplicate injection
-                    c = conn.execute("SELECT COUNT(*) FROM tenders WHERE tender_name=? AND party=?", (row['tender_name'], row['party'])).fetchone()[0]
-                    if c == 0:
+                    # Fixed missing closing parenthesis issue here
+                    res = conn.execute(
+                        "SELECT COUNT(*) FROM tenders WHERE tender_name=? AND party=?", 
+                        (row['tender_name'], row['party'])
+                    ).fetchone()
+                    
+                    if res[0] == 0:
                         rem = row.get('remarks', '')
                         sub_t = row.get('submission_type', 'Online (E-Procurement)')
                         conn.execute(
@@ -241,3 +244,5 @@ elif page == "➕ Add Record Entry":
             if name.strip() and party.strip():
                 conn.execute(
                     "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
+                    (name.strip(), party.strip(), amount, str(due), status, remarks, submission_type),
+                )
