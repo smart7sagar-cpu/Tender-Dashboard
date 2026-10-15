@@ -6,12 +6,12 @@ import plotly.express as px
 import streamlit as st
 
 # ------------------------------------------------------------------
-# PREMIUM FULL-SCREEN PAGE CONFIG
+# EXECUTIVE ULTRA-WIDE PAGE CONFIG
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="Advanced Tender Intelligence Dashboard - SSS",
+    page_title="Tender Intelligence Command Center - SSS",
     page_icon="🏆",
-    layout="wide", # Enforces widescreen infrastructure
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
@@ -26,17 +26,15 @@ BG = "#F8FAFC"
 CURRENCY = "₹"
 
 # ------------------------------------------------------------------
-# ULTRA-WIDE CORPORATE WEB VIEW CSS
+# WIDESCREEN WEB VIEW ARCHITECTURE (CSS)
 # ------------------------------------------------------------------
 st.markdown(
     f"""
 <style>
-    /* Completely strip out sidebar controls and utilize full screen space */
     [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display: none;}}
     header[data-testid="stHeader"] {{background: transparent;}}
     .stApp {{background: {BG};}}
     
-    /* Force Web App to span across 98% of desktop viewport */
     .block-container {{
         padding-top: 1rem !important; 
         padding-bottom: 2rem !important; 
@@ -45,21 +43,19 @@ st.markdown(
         max-width: 98% !important; 
     }}
 
-    /* Executive Wide Banner */
     .banner {{
         background: linear-gradient(135deg, {NAVY} 0%, {BLUE} 100%);
-        color: white; text-align: center; padding: 25px 20px;
+        color: white; text-align: center; padding: 20px 15px;
         border-radius: 14px; box-shadow: 0 4px 20px rgba(15,30,54,.2);
         margin-bottom: 20px; width: 100%;
     }}
-    .banner h1 {{margin: 0; font-size: 2.4rem; letter-spacing: 1.5px; font-weight: 800; color: white;}}
-    .banner p {{margin: 6px 0 0 0; font-size: 1rem; opacity: .9; letter-spacing: 1px;}}
+    .banner h1 {{margin: 0; font-size: 2.2rem; letter-spacing: 1.5px; font-weight: 800; color: white;}}
+    .banner p {{margin: 4px 0 0 0; font-size: 0.95rem; opacity: .9; letter-spacing: 1px;}}
 
-    /* Global Grid Layout & Responsive Buttons */
     div.stButton > button {{
-        width: 100%; height: 56px; border-radius: 12px; font-weight: 700;
+        width: 100%; height: 52px; border-radius: 12px; font-weight: 700;
         letter-spacing: .5px; border: 1px solid {BLUE}; transition: all .25s ease;
-        font-size: 0.95rem !important;
+        font-size: 0.9rem !important;
     }}
     div.stButton > button[kind="secondary"],
     div.stButton > button[data-testid="stBaseButton-secondary"] {{
@@ -72,23 +68,27 @@ st.markdown(
     }}
     div.stButton > button:hover {{transform: translateY(-2px); box-shadow: 0 6px 16px rgba(29,78,216,.25);}}
 
-    /* Premium Metric Grid Layout */
     .kpi {{
-        background: white; border-radius: 12px; padding: 22px 24px;
+        background: white; border-radius: 12px; padding: 20px 22px;
         box-shadow: 0 4px 12px rgba(0,0,0,.04); border-top: 6px solid {BLUE};
         transition: transform 0.2s; width: 100%;
     }}
     .kpi:hover {{transform: translateY(-2px);}}
-    .kpi .label {{font-size: .85rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}}
-    .kpi .value {{font-size: 2rem; font-weight: 800; color: {NAVY}; margin-top: 6px;}}
+    .kpi .label {{font-size: .8rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}}
+    .kpi .value {{font-size: 1.9rem; font-weight: 800; color: {NAVY}; margin-top: 4px;}}
     .kpi.green {{border-top-color: {GREEN};}}
     .kpi.red {{border-top-color: {RED};}}
     .kpi.amber {{border-top-color: {AMBER};}}
     .kpi.purple {{border-top-color: {PURPLE};}}
 
     .section-title {{
-        color: {NAVY}; font-weight: 800; font-size: 1.4rem;
-        border-left: 6px solid {BLUE}; padding-left: 12px; margin: 30px 0 15px 0;
+        color: {NAVY}; font-weight: 800; font-size: 1.35rem;
+        border-left: 6px solid {BLUE}; padding-left: 12px; margin: 25px 0 15px 0;
+    }}
+    .action-container {{
+        background: white; border-radius: 14px; padding: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,.03); border: 1px solid #E2E8F0;
+        margin-bottom: 25px;
     }}
 </style>
 """,
@@ -96,11 +96,11 @@ st.markdown(
 )
 
 # ------------------------------------------------------------------
-# SYSTEM DATABASE ARCHITECTURE
+# SYSTEM DATABASE ENGINE (AUTOMATIC CAPABILITIES)
 # ------------------------------------------------------------------
 @st.cache_resource
 def get_conn():
-    conn = sqlite3.connect("tenders_v2.db", check_same_thread=False)
+    conn = sqlite3.connect("tenders_v3.db", check_same_thread=False)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS tenders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,21 +160,21 @@ TABLE_COLS = ["id", "tender_name", "party", "amount", "due_date", "status", "sub
 # SYSTEM BANNER SETUP
 # ------------------------------------------------------------------
 st.markdown(
-    '<div class="banner"><h1>📑 TENDER COMMAND STATION & INTELLIGENCE</h1>'
-    "<p>A TO Z EXECUTIVE LEVEL ADMINISTRATIVE SUITE — FULL SCREEN VIEW</p></div>",
+    '<div class="banner"><h1>📑 SSS TENDER COMMAND CONTROL STATION</h1>'
+    "<p>A TO Z EXECUTIVE LEVEL ADMINISTRATIVE SUITE — PERSISTENT VISUAL CONTROL</p></div>",
     unsafe_allow_html=True,
 )
 
-# 5 ADVANCED RESPONSIVE TOP NAV BAR NAVIGATION
-PAGES = ["Dashboard", "Manage A-Z Records", "🛡️ Participated", "❌ Not Participated", "📊 Advanced Analytics"]
+# NAVBAR SYSTEM
+PAGES = ["🏠 Home / Overview", "➕ Add Record Entry", "✏️ Edit / Delete Entry", "📊 System Exporter"]
 
 if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
+    st.session_state.page = "🏠 Home / Overview"
 
 def navigate(p):
     st.session_state.page = p
 
-nav_cols = st.columns(5, gap="small")
+nav_cols = st.columns(4, gap="small")
 for col, p in zip(nav_cols, PAGES):
     col.button(
         p.upper(),
@@ -190,60 +190,55 @@ st.write("")
 df = load_df()
 
 # ------------------------------------------------------------------
-# MODULE INJECTION ROUTING
+# DYNAMIC TOP CONTROL DECK PANEL (FORM CHANGES HERE)
 # ------------------------------------------------------------------
-if df.empty and page != "Manage A-Z Records":
-    st.info("⚡ System Database is empty. Please open 'Manage A-Z Records' tab to initialize corporate tender metrics.")
-else:
-    # --------------------------------------------------------------
-    # MODULE 1: COMPREHENSIVE DASHBOARD OVERVIEW
-    # --------------------------------------------------------------
-    if page == "Dashboard":
-        part_count = len(df[df["status"] == "Bidded (Participated)"])
-        not_part_count = len(df[df["status"] == "Dropped (Not Participated)"])
-        pending = df[df["status"] == "Pending"]
-        overdue = pending[pending["days_left"] < 0]
+st.markdown('<div class="action-container">', unsafe_allow_html=True)
 
-        # Metric Fluid Row spans wide across screens
-        k1, k2, k3, k4, k5 = st.columns(5, gap="medium")
-        kpi(k1, "Total Pipeline Records", len(df))
-        kpi(k2, "Gross Cumulative Value", money(df["amount"].sum()), "purple")
-        kpi(k3, "👍 Participated Count", part_count, "green")
-        kpi(k4, "👎 Not Participated", not_part_count, "amber")
-        kpi(k5, "🔴 Critical Overdue", len(overdue), "red")
+if page == "🏠 Home / Overview":
+    st.info("💡 Welcome to Command Center. Use the Navigation Panel above to register entries or execute live edits. Performance telemetry charts and master databases are continuously rendering below.")
 
-        # Full Width Visual Plots split dynamically
-        st.markdown('<div class="section-title">Core Performance Architecture</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns(2, gap="large")
-        with c1:
-            fig = px.pie(
-                df, names="status", values="amount", hole=0.6,
-                color="status",
-                color_discrete_map={
-                    "Pending": AMBER, "Completed": GREEN, 
-                    "Bidded (Participated)": BLUE, "Dropped (Not Participated)": RED
-                },
-                title="Monetary Value Split Distribution (Donut Level)",
-            )
-            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white", autosize=True)
-            st.plotly_chart(fig, use_container_width=True)
+elif page == "➕ Add Record Entry":
+    st.subheader("📝 Register New Tender Profile")
+    with st.form("master_add_form", clear_on_submit=True):
+        a1, a2 = st.columns(2, gap="medium")
+        name = a1.text_input("Tender ID Name/Number Code *")
+        party = a2.text_input("Issuing Client/Party Name *")
+        
+        a3, a4, a5 = st.columns(3, gap="medium")
+        amount = a3.number_input("Estimated Tender Valuation (INR)", min_value=0.0, step=1000.0)
+        due = a4.date_input("Target Submission Deadline", value=date.today() + timedelta(days=15))
+        status = a5.selectbox("Initial Management Status", STATUS_OPTIONS)
+        
+        a6, a7 = st.columns(2, gap="medium")
+        submission_type = a6.selectbox("Submission Portal Type", ["Online (E-Procurement)", "Offline/Physical", "Global Tender Enquiry"])
+        remarks = a7.text_area("Administrative Remarks / Notes")
+        
+        save = st.form_submit_button("💾 Commit Record to Database Securely", type="primary")
+        if save:
+            if name.strip() and party.strip():
+                conn.execute(
+                    "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
+                    (name.strip(), party.strip(), amount, str(due), status, remarks, submission_type),
+                )
+                conn.commit()
+                st.success("🎉 Advanced Tender Profile mapped successfully into Core System Data storage.")
+                st.rerun()
+            else:
+                st.error("❌ Process Halting: Please check that Tender Nomenclature and Party details are not empty.")
+
+elif page == "✏️ Edit / Delete Entry":
+    st.subheader("✏️ Live Database Record Manipulator & Destructor")
+    if df.empty:
+        st.warning("Database contains no modification files.")
+    else:
+        rec_choices = {int(r.id): f"Record Reference #{int(r.id)} ➡️ {r.tender_name} [{r.party}]" for r in df.itertuples()}
+        sel = st.selectbox("Choose Target Profile ID to Update/Remove", list(rec_choices.keys()), format_func=lambda i: rec_choices[i])
+        
+        rec = df[df["id"] == sel].iloc[0]
+        with st.form("live_edit_matrix"):
+            e1, e2 = st.columns(2, gap="medium")
+            e_name = e1.text_input("Edit Nomenclature", value=str(rec["tender_name"]))
+            e_party = e2.text_input("Edit Party Group", value=str(rec["party"]))
             
-        with c2:
-            by_party = df.groupby(["party", "status"], as_index=False)["amount"].sum()
-            fig = px.bar(
-                by_party, x="party", y="amount", color="status", barmode="stack",
-                color_discrete_map={
-                    "Pending": AMBER, "Completed": GREEN, 
-                    "Bidded (Participated)": BLUE, "Dropped (Not Participated)": RED
-                },
-                title="Operational Exposure Breakdown by Party Stack",
-            )
-            fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="white", plot_bgcolor="white", autosize=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.markdown('<div class="section-title">Recent High-Value Strategic Tenders</div>', unsafe_allow_html=True)
-        st.dataframe(
-            df.head(15)[TABLE_COLS], column_config=TABLE_CONFIG,
-            hide_index=True, use_container_width=True, # Auto scales natively to monitor edges
-        )
-
+            e3, e4, e5 = st.columns(3, gap="medium")
+            e_amount = e3.number_input("Refine Worth", min_value=0.0, value=float(rec["amount"] or 0))
