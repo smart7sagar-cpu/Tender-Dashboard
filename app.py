@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import time
 import traceback
 
 
@@ -124,6 +125,7 @@ DB_COLS = {
     "estimated_cost": "REAL", "amount": "REAL", "emd_amount": "REAL", "emd_status": "TEXT",
     "tender_fee": "REAL", "publish_date": "TEXT", "due_date": "TEXT", "opening_date": "TEXT",
     "result": "TEXT", "status": "TEXT", "work_order_no": "TEXT", "remarks": "TEXT",
+    "work_description": "TEXT", "no_of_awardees": "INTEGER",
     "created_at": "TEXT",
 }
 TEXT_COLS = [c for c, t in DB_COLS.items() if t == "TEXT" and not c.endswith("_date") and c != "created_at"]
@@ -177,6 +179,7 @@ def load_df() -> pd.DataFrame:
         df[c] = df[c].fillna("")
     for c in NUM_COLS:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    df["no_of_awardees"] = pd.to_numeric(df["no_of_awardees"], errors="coerce").fillna(0).astype(int)
     df["participation"] = df["participation"].replace("", "Participated")
     df["result"] = df["result"].replace("", "Pending")
     df["status"] = df["status"].replace("", "Pending")
@@ -190,18 +193,24 @@ def load_df() -> pd.DataFrame:
     return df
 
 
+def bump():
+    st.session_state["ver"] = st.session_state.get("ver", 0) + 1
+
+
 def insert_record(v: dict):
     cols = list(v)
     conn.execute(
         f"INSERT INTO tenders ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", list(v.values())
     )
     conn.commit()
+    bump()
 
 
 def update_record(rid: int, v: dict):
     sets = ",".join(f"{c}=?" for c in v)
     conn.execute(f"UPDATE tenders SET {sets} WHERE id=?", list(v.values()) + [rid])
     conn.commit()
+    bump()
 
 
 # ==================================================================
@@ -255,15 +264,16 @@ def donut(df, col, text, cmap, key, value=None):
     _s(st, "plotly_chart", style(fig, text, 340), use_container_width=True, key=key)
 
 
-TABLE_COLS = ["id", "tender_no", "tender_name", "department", "party", "category", "participation",
-              "amount", "due_date", "result", "status", "days_left", "alert"]
-ALL_COLS = ["id", "tender_no", "tender_name", "department", "party", "category", "location",
+TABLE_COLS = ["id", "tender_no", "tender_name", "work_description", "department", "party", "category",
+              "participation", "amount", "no_of_awardees", "due_date", "result", "status", "days_left", "alert"]
+ALL_COLS = ["id", "tender_no", "tender_name", "work_description", "department", "party", "category", "location",
             "participation", "not_part_reason", "estimated_cost", "amount", "emd_amount", "emd_status",
             "tender_fee", "publish_date", "due_date", "opening_date", "result", "status",
-            "work_order_no", "remarks", "days_left", "alert", "fy"]
+            "work_order_no", "no_of_awardees", "remarks", "days_left", "alert", "fy"]
 CFG = {
     "id": st.column_config.NumberColumn("ID", width="small"),
-    "tender_no": "Tender No.", "tender_name": "Tender Name", "department": "Department",
+    "tender_no": "Tender No.", "tender_name": "Tender Name", "work_description": "Work Description",
+    "no_of_awardees": st.column_config.NumberColumn("Awardees", format="%d"), "department": "Department",
     "party": "Party", "category": "Category", "location": "Location",
     "participation": "Participation", "not_part_reason": "Reason (Not Participated)",
     "estimated_cost": st.column_config.NumberColumn("Estimated Cost", format=f"{CUR}%.2f"),
@@ -291,69 +301,160 @@ def opts(base, current):
 # ==================================================================
 # RECORD FORM (shared by Add and Edit)
 # ==================================================================
-def record_form(prefix, rec=None):
+FIELD_KEYS = ["no", "name", "dept", "party", "cat", "loc", "wdesc", "est", "amt", "emd", "emds", "fee",
+              "pub", "due", "open", "part", "res", "stat", "wo", "awd", "reason", "rem"]
+
+
+def _init(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+
+def _pick(val, options, default=None):
+    return val if val in options else (default if default is not None else options[0])
+
+
+def record_form(prefix, rec=None, on_last=None, last_args=()):
+    """Normal widgets (st.form nahi) -> beech ke field me Enter dabane se save nahi hota."""
+    P = lambda n: f"{prefix}_{n}"
+
     def g(k, d=""):
-        return str(rec[k]) if rec is not None and pd.notna(rec[k]) and rec[k] != "" else d
+        if rec is not None and k in rec.index and pd.notna(rec[k]) and rec[k] != "":
+            return str(rec[k])
+        return d
 
     def gn(k):
-        return float(rec[k]) if rec is not None and pd.notna(rec[k]) else 0.0
+        return float(rec[k]) if rec is not None and k in rec.index and pd.notna(rec[k]) else 0.0
 
     def gd(k, default):
-        return rec[k].date() if rec is not None and pd.notna(rec[k]) else default
+        return rec[k].date() if rec is not None and k in rec.index and pd.notna(rec[k]) else default
+
+    awd = 1
+    if rec is not None and "no_of_awardees" in rec.index and pd.notna(rec["no_of_awardees"]) and int(rec["no_of_awardees"]) >= 1:
+        awd = int(rec["no_of_awardees"])
+
+    cats = opts(CATEGORIES, g("category"))
+    emds = opts(EMD_STATUS, g("emd_status"))
+    defaults = {
+        "no": g("tender_no"), "name": g("tender_name"), "dept": g("department"), "party": g("party"),
+        "cat": _pick(g("category"), cats), "loc": g("location"), "wdesc": g("work_description"),
+        "est": gn("estimated_cost"), "amt": gn("amount"), "emd": gn("emd_amount"),
+        "emds": _pick(g("emd_status"), emds), "fee": gn("tender_fee"),
+        "pub": gd("publish_date", date.today()),
+        "due": gd("due_date", date.today() + timedelta(days=15)),
+        "open": gd("opening_date", date.today() + timedelta(days=16)),
+        "part": _pick(g("participation", "Participated"), PARTICIPATION),
+        "res": _pick(g("result", "Pending"), RESULTS), "stat": _pick(g("status", "Pending"), STATUSES),
+        "wo": g("work_order_no"), "awd": awd, "reason": g("not_part_reason"), "rem": g("remarks"),
+    }
+    for k, v in defaults.items():
+        _init(P(k), v)
 
     st.markdown("**📌 Basic Details**")
     c1, c2, c3 = st.columns(3)
-    tender_no = c1.text_input("Tender No.", value=g("tender_no"), key=f"{prefix}_no")
-    name = c2.text_input("Tender Name *", value=g("tender_name"), key=f"{prefix}_name")
-    dept = c3.text_input("Department / Organization", value=g("department"), key=f"{prefix}_dept")
+    c1.text_input("Tender No.", key=P("no"))
+    c2.text_input("Tender Name *", key=P("name"))
+    c3.text_input("Department / Organization", key=P("dept"))
     c4, c5, c6 = st.columns(3)
-    party = c4.text_input("Party Name *", value=g("party"), key=f"{prefix}_party")
-    cats = opts(CATEGORIES, g("category"))
-    cat = c5.selectbox("Category", cats, index=cats.index(g("category")) if g("category") in cats else 0,
-                       key=f"{prefix}_cat")
-    loc = c6.text_input("Location", value=g("location"), key=f"{prefix}_loc")
+    c4.text_input("Party Name *", key=P("party"))
+    c5.selectbox("Category", cats, key=P("cat"))
+    c6.text_input("Location", key=P("loc"))
+    st.text_area("📝 Work Description (kaam ka vivaran)", key=P("wdesc"), height=90)
 
     st.markdown("**💰 Financials**")
     f1, f2, f3, f4, f5 = st.columns(5)
-    est = f1.number_input("Estimated Cost", min_value=0.0, value=gn("estimated_cost"), step=1000.0, key=f"{prefix}_est")
-    amt = f2.number_input("Quoted Amount", min_value=0.0, value=gn("amount"), step=1000.0, key=f"{prefix}_amt")
-    emd = f3.number_input("EMD Amount", min_value=0.0, value=gn("emd_amount"), step=500.0, key=f"{prefix}_emd")
-    emds = opts(EMD_STATUS, g("emd_status"))
-    emd_s = f4.selectbox("EMD Status", emds,
-                         index=emds.index(g("emd_status")) if g("emd_status") in emds else 0, key=f"{prefix}_emds")
-    fee = f5.number_input("Tender Fee", min_value=0.0, value=gn("tender_fee"), step=100.0, key=f"{prefix}_fee")
+    f1.number_input("Estimated Cost", min_value=0.0, step=1000.0, key=P("est"))
+    f2.number_input("Quoted Amount", min_value=0.0, step=1000.0, key=P("amt"))
+    f3.number_input("EMD Amount", min_value=0.0, step=500.0, key=P("emd"))
+    f4.selectbox("EMD Status", emds, key=P("emds"))
+    f5.number_input("Tender Fee", min_value=0.0, step=100.0, key=P("fee"))
 
     st.markdown("**📅 Dates**")
     d1, d2, d3 = st.columns(3)
-    pub = d1.date_input("Publish Date", value=gd("publish_date", date.today()), key=f"{prefix}_pub")
-    due = d2.date_input("Submission (Due) Date", value=gd("due_date", date.today() + timedelta(days=15)),
-                        key=f"{prefix}_due")
-    opn = d3.date_input("Opening Date", value=gd("opening_date", date.today() + timedelta(days=16)),
-                        key=f"{prefix}_open")
+    d1.date_input("Publish Date", key=P("pub"))
+    d2.date_input("Submission (Due) Date", key=P("due"))
+    d3.date_input("Opening Date", key=P("open"))
 
     st.markdown("**🏁 Participation & Result**")
-    s1, s2, s3, s4 = st.columns(4)
-    part = s1.selectbox("Participation", PARTICIPATION,
-                        index=PARTICIPATION.index(g("participation", "Participated"))
-                        if g("participation", "Participated") in PARTICIPATION else 0, key=f"{prefix}_part")
-    res = s2.selectbox("Result", RESULTS,
-                       index=RESULTS.index(g("result", "Pending")) if g("result", "Pending") in RESULTS else 0,
-                       key=f"{prefix}_res")
-    stat = s3.selectbox("Status", STATUSES,
-                        index=STATUSES.index(g("status", "Pending")) if g("status", "Pending") in STATUSES else 0,
-                        key=f"{prefix}_stat")
-    wo = s4.text_input("Work Order No.", value=g("work_order_no"), key=f"{prefix}_wo")
-    reason = st.text_input("Reason (agar Not Participated hai)", value=g("not_part_reason"), key=f"{prefix}_reason")
-    remarks = st.text_area("Remarks", value=g("remarks"), key=f"{prefix}_rem", height=80)
+    s1, s2, s3, s4, s5 = st.columns(5)
+    s1.selectbox("Participation", PARTICIPATION, key=P("part"))
+    s2.selectbox("Result", RESULTS, key=P("res"))
+    s3.selectbox("Status", STATUSES, key=P("stat"))
+    s4.text_input("Work Order No.", key=P("wo"))
+    s5.number_input("Tender kitne logo ko milega (No. of Awardees)", min_value=1, step=1, key=P("awd"))
+    st.text_input("Reason (agar Not Participated hai)", key=P("reason"))
+    if on_last:
+        st.text_input("Remarks  ⬅ (LAST FIELD)", key=P("rem"), on_change=on_last, args=last_args)
+    else:
+        st.text_input("Remarks  ⬅ (LAST FIELD)", key=P("rem"))
 
+
+def collect(prefix):
+    """Session state se values padhta hai (keys na mile to safe defaults)."""
+    s = st.session_state
+    G = lambda n, d="": s.get(f"{prefix}_{n}", d)
+    today = date.today()
     return {
-        "tender_no": tender_no.strip(), "tender_name": name.strip(), "department": dept.strip(),
-        "party": party.strip(), "category": cat, "location": loc.strip(), "participation": part,
-        "not_part_reason": reason.strip(), "estimated_cost": est, "amount": amt, "emd_amount": emd,
-        "emd_status": emd_s, "tender_fee": fee, "publish_date": str(pub), "due_date": str(due),
-        "opening_date": str(opn), "result": res, "status": stat, "work_order_no": wo.strip(),
-        "remarks": remarks.strip(),
+        "tender_no": str(G("no")).strip(), "tender_name": str(G("name")).strip(),
+        "department": str(G("dept")).strip(), "party": str(G("party")).strip(),
+        "category": G("cat", CATEGORIES[0]), "location": str(G("loc")).strip(),
+        "work_description": str(G("wdesc")).strip(), "participation": G("part", PARTICIPATION[0]),
+        "not_part_reason": str(G("reason")).strip(), "estimated_cost": float(G("est", 0.0)),
+        "amount": float(G("amt", 0.0)), "emd_amount": float(G("emd", 0.0)), "emd_status": G("emds", EMD_STATUS[0]),
+        "tender_fee": float(G("fee", 0.0)), "publish_date": str(G("pub", today)),
+        "due_date": str(G("due", today + timedelta(days=15))),
+        "opening_date": str(G("open", today + timedelta(days=16))), "result": G("res", RESULTS[0]),
+        "status": G("stat", STATUSES[0]), "work_order_no": str(G("wo")).strip(),
+        "no_of_awardees": int(G("awd", 1)), "remarks": str(G("rem")).strip(),
     }
+
+
+# ---------- save / update / delete callbacks ----------
+def save_new():
+    s = st.session_state
+    vals = collect("add")
+    if not vals["tender_name"] and not vals["party"] and time.time() - s.get("ts_add", 0) < 8:
+        return  # abhi-abhi save hua hai (double trigger se bachav)
+    if vals["tender_name"] and vals["party"]:
+        vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        insert_record(vals)
+        for k in FIELD_KEYS:
+            s.pop(f"add_{k}", None)
+        s["ts_add"] = time.time()
+        s["msg_add"] = ("ok", "✅ Record save ho gaya! Naya record bhar sakte hain.")
+    else:
+        s["msg_add"] = ("err", "❌ Tender Name aur Party Name dono bharna zaroori hai.")
+
+
+def save_new_enter():
+    if st.session_state.get("enter_save", True):
+        save_new()
+
+
+def update_cb(rid, prefix):
+    s = st.session_state
+    vals = collect(prefix)
+    if vals["tender_name"] and vals["party"]:
+        update_record(int(rid), vals)
+        s["msg_edit"] = ("ok", f"✅ Record #{rid} update ho gaya.")
+    else:
+        s["msg_edit"] = ("err", "❌ Tender Name aur Party Name zaroori hai.")
+
+
+def update_enter(rid, prefix):
+    if st.session_state.get("enter_save", True):
+        update_cb(rid, prefix)
+
+
+def delete_cb(rid, prefix):
+    s = st.session_state
+    if s.get(f"{prefix}_cf"):
+        conn.execute("DELETE FROM tenders WHERE id=?", (int(rid),))
+        conn.commit()
+        bump()
+        s["msg_edit"] = ("ok", f"🗑️ Record #{rid} delete ho gaya.")
+    else:
+        s["msg_edit"] = ("err", "Delete karne ke liye 'Delete confirm' tick karein.")
 
 
 # ==================================================================
@@ -364,7 +465,7 @@ def record_manager(df, key):
         st.info("Is section me abhi koi record nahi hai.")
         return
     f1, f2, f3, f4, f5 = st.columns([2.2, 1.6, 1.4, 1.4, 1.4])
-    q = f1.text_input("🔍 Search (No./Name/Party/Dept)", key=f"{key}_q")
+    q = f1.text_input("🔍 Search (No./Name/Work/Party/Dept)", key=f"{key}_q")
     party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{key}_p")
     cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{key}_c")
     res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{key}_r")
@@ -375,7 +476,8 @@ def record_manager(df, key):
         m = (fdf["tender_name"].str.contains(q, case=False, na=False)
              | fdf["party"].str.contains(q, case=False, na=False)
              | fdf["tender_no"].str.contains(q, case=False, na=False)
-             | fdf["department"].str.contains(q, case=False, na=False))
+             | fdf["department"].str.contains(q, case=False, na=False)
+             | fdf["work_description"].str.contains(q, case=False, na=False))
         fdf = fdf[m]
     if party_f != "All":
         fdf = fdf[fdf["party"] == party_f]
@@ -393,30 +495,19 @@ def record_manager(df, key):
     if fdf.empty:
         return
     title("✏️ Edit / Delete Record")
+    st.checkbox("⌨️ Last field (Remarks) me Enter dabane par update karo", value=True, key="enter_save")
     names = {int(r.id): f"#{int(r.id)} | {r.tender_no} | {r.tender_name} | {r.party}" for r in fdf.itertuples()}
     sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{key}_sel")
     rec = fdf[fdf["id"] == sel].iloc[0]
-    with st.form(f"{key}_form_{sel}"):
-        vals = record_form(f"{key}_e{sel}", rec)
-        b1, b2, b3 = st.columns([1, 1, 2])
-        upd = b1.form_submit_button("🔄 Update Record", type="primary")
-        confirm = b3.checkbox("Delete confirm karta hu", key=f"{key}_cf{sel}")
-        dele = b2.form_submit_button("🗑️ Delete Record")
-        if upd:
-            if vals["tender_name"] and vals["party"]:
-                update_record(int(sel), vals)
-                st.success("✅ Record update ho gaya.")
-                do_rerun()
-            else:
-                st.error("Tender Name aur Party Name zaroori hai.")
-        if dele:
-            if confirm:
-                conn.execute("DELETE FROM tenders WHERE id=?", (int(sel),))
-                conn.commit()
-                st.warning(f"Record #{sel} delete ho gaya.")
-                do_rerun()
-            else:
-                st.error("Delete karne ke liye 'Delete confirm' tick karein.")
+    prefix = f"{key}_e{sel}_v{st.session_state.get('ver', 0)}"
+    record_form(prefix, rec, on_last=update_enter, last_args=(int(sel), prefix))
+    msg = st.session_state.get("msg_edit")
+    if msg:
+        (st.success if msg[0] == "ok" else st.error)(msg[1])
+    b1, b2, b3 = st.columns([1, 1, 2])
+    b1.button("🔄 Update Record", type="primary", key=f"{prefix}_upd", on_click=update_cb, args=(int(sel), prefix))
+    b2.button("🗑️ Delete Record", key=f"{prefix}_del", on_click=delete_cb, args=(int(sel), prefix))
+    b3.checkbox("Delete confirm karta hu", key=f"{prefix}_cf")
 
 
 def quick_edit(df, col, options, key):
@@ -434,6 +525,7 @@ def quick_edit(df, col, options, key):
                 conn.execute(f"UPDATE tenders SET {col}=? WHERE id=?", (row[col], int(row["id"])))
                 n += 1
         conn.commit()
+        bump()
         st.success(f"✅ {n} record update hue.")
         do_rerun()
 
@@ -479,6 +571,8 @@ if "page" not in st.session_state:
 
 def goto_page(p):
     st.session_state.page = p
+    st.session_state.pop("msg_add", None)
+    st.session_state.pop("msg_edit", None)
 
 
 for row in (PAGES[:5], PAGES[5:]):
@@ -654,23 +748,18 @@ def render_page():
     # ==================================================================
     elif page == "Add Record":
         title("➕ Add New Tender Record")
-        with st.form("add_form", clear_on_submit=True):
-            vals = record_form("add")
-            save = st.form_submit_button("💾 Save Record", type="primary")
-            if save:
-                if vals["tender_name"] and vals["party"]:
-                    vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    insert_record(vals)
-                    st.success("✅ Record save ho gaya!")
-                else:
-                    st.error("❌ Tender Name aur Party Name dono bharna zaroori hai.")
+        st.checkbox("⌨️ Last field (Remarks) me Enter dabane par save karo", value=True, key="enter_save")
+        st.caption("ℹ️ Beech ke kisi bhi field me Enter dabane se record save NAHI hoga. "
+                   "Save tabhi hoga jab last field (Remarks) me Enter dabayein, ya '💾 Save Record' button dabayein.")
+        record_form("add", on_last=save_new_enter)
+        st.button("💾 Save Record", type="primary", key="add_save_btn", on_click=save_new)
+        msg = st.session_state.get("msg_add")
+        if msg:
+            (st.success if msg[0] == "ok" else st.error)(msg[1])
         if not ALL.empty:
             title("Last 5 Entries")
             show(ALL.head(5))
 
-    # ==================================================================
-    # VIEW / PARTICIPATED / NOT PARTICIPATED
-    # ==================================================================
     elif page == "View Records":
         title("📋 All Tender Records")
         record_manager(ALL, "all")
@@ -872,6 +961,7 @@ def render_page():
                         idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         idf.to_sql("tenders", conn, if_exists="append", index=False)
                         conn.commit()
+                        bump()
                         st.success("Import complete!")
                         do_rerun()
             except Exception as ex:
