@@ -1,165 +1,201 @@
 import io
 import sqlite3
 from datetime import date, datetime, timedelta
+
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
-# ------------------------------------------------------------------
-# EXECUTIVE ULTRA-WIDE PAGE CONFIG
-# ------------------------------------------------------------------
+# ==================================================================
+# PAGE CONFIG
+# ==================================================================
 st.set_page_config(
-    page_title="Tender Intelligence Command Center - SSS",
-    page_icon="🏆",
+    page_title="Tender Portal - SSS",
+    page_icon="📑",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-NAVY = "#0F1E36"
-BLUE = "#1D4ED8"
-LIGHT_BLUE = "#3B82F6"
-GREEN = "#10B981"
-RED = "#EF4444"
-AMBER = "#F59E0B"
-PURPLE = "#8B5CF6"
-BG = "#F8FAFC"
-CURRENCY = "₹"
+NAVY = "#12264A"
+BLUE = "#2F5FB3"
+GREEN = "#1E9E6A"
+RED = "#D64545"
+AMBER = "#E8A317"
+PURPLE = "#7B5EA7"
+TEAL = "#17A2B8"
+GREY = "#9AA5B8"
+BG = "#EEF2F8"
+CUR = "₹"
+PALETTE = [BLUE, GREEN, AMBER, RED, PURPLE, TEAL, "#FF7F50", GREY]
 
-# ------------------------------------------------------------------
-# WIDESCREEN WEB VIEW ARCHITECTURE (CSS)
-# ------------------------------------------------------------------
+CMAP_PART = {"Participated": BLUE, "Not Participated": GREY}
+CMAP_RESULT = {"Won": GREEN, "Lost": RED, "Pending": AMBER, "Cancelled": GREY}
+CMAP_STATUS = {"Pending": AMBER, "Completed": GREEN}
+CMAP_EMD = {"Paid": BLUE, "Refunded": GREEN, "Pending": AMBER, "Forfeited": RED, "Not Applicable": GREY}
+
+PARTICIPATION = ["Participated", "Not Participated"]
+RESULTS = ["Pending", "Won", "Lost", "Cancelled"]
+STATUSES = ["Pending", "Completed"]
+EMD_STATUS = ["Not Applicable", "Paid", "Refunded", "Pending", "Forfeited"]
+CATEGORIES = ["Works", "Supply", "Service", "Consultancy", "Maintenance", "Other"]
+
+# ==================================================================
+# CSS  (full width, official portal look)
+# ==================================================================
 st.markdown(
     f"""
 <style>
-    [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display: none;}}
-    header[data-testid="stHeader"] {{background: transparent;}}
-    .stApp {{background: {BG};}}
-    
-    .block-container {{
-        padding-top: 1rem !important; 
-        padding-bottom: 2rem !important; 
-        padding-left: 1.5rem !important;
-        padding-right: 1.5rem !important;
-        max-width: 98% !important; 
-    }}
+    [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display:none;}}
+    header[data-testid="stHeader"] {{background:transparent;}}
+    .stApp {{background:{BG};}}
+    .block-container {{max-width:100% !important; padding:0.8rem 2.2rem 2rem 2.2rem;}}
 
-    .banner {{
-        background: linear-gradient(135deg, {NAVY} 0%, {BLUE} 100%);
-        color: white; text-align: center; padding: 20px 15px;
-        border-radius: 14px; box-shadow: 0 4px 20px rgba(15,30,54,.2);
-        margin-bottom: 20px; width: 100%;
+    .topbar {{
+        background:{NAVY}; color:#cfd9ee; font-size:.78rem; padding:6px 18px;
+        border-radius:8px 8px 0 0; display:flex; justify-content:space-between; letter-spacing:.8px;
     }}
-    .banner h1 {{margin: 0; font-size: 2.2rem; letter-spacing: 1.5px; font-weight: 800; color: white;}}
-    .banner p {{margin: 4px 0 0 0; font-size: 0.95rem; opacity: .9; letter-spacing: 1px;}}
+    .banner {{
+        background:linear-gradient(120deg,{NAVY} 0%,{BLUE} 60%,{TEAL} 100%);
+        color:white; text-align:center; padding:22px 10px; margin-bottom:16px;
+        border-radius:0 0 14px 14px; box-shadow:0 6px 18px rgba(18,38,74,.30);
+    }}
+    .banner h1 {{margin:0; font-size:2.2rem; letter-spacing:3px; font-weight:800; color:white;}}
+    .banner p {{margin:6px 0 0 0; font-size:.85rem; opacity:.9; letter-spacing:2px;}}
 
     div.stButton > button {{
-        width: 100%; height: 52px; border-radius: 12px; font-weight: 700;
-        letter-spacing: .5px; border: 1px solid {BLUE}; transition: all .25s ease;
-        font-size: 0.9rem !important;
+        width:100%; height:50px; border-radius:10px; font-weight:700; letter-spacing:.4px;
+        border:1px solid {BLUE}; transition:all .2s; font-size:.85rem;
     }}
-    div.stButton > button[kind="secondary"],
-    div.stButton > button[data-testid="stBaseButton-secondary"] {{
-        background: white; color: {BLUE};
+    div.stButton > button[kind="secondary"], div.stButton > button[data-testid="stBaseButton-secondary"] {{
+        background:white; color:{BLUE};
     }}
-    div.stButton > button[kind="primary"],
-    div.stButton > button[data-testid="stBaseButton-primary"] {{
-        background: linear-gradient(135deg, {BLUE}, {NAVY}); color: white; border: none;
-        box-shadow: 0 4px 12px rgba(29,78,216,.3);
+    div.stButton > button[kind="primary"], div.stButton > button[data-testid="stBaseButton-primary"] {{
+        background:linear-gradient(135deg,{BLUE},{NAVY}); color:white; border:none;
+        box-shadow:0 4px 10px rgba(47,95,179,.40);
     }}
-    div.stButton > button:hover {{transform: translateY(-2px); box-shadow: 0 6px 16px rgba(29,78,216,.25);}}
+    div.stButton > button:hover {{transform:translateY(-2px); box-shadow:0 6px 14px rgba(47,95,179,.30);}}
 
     .kpi {{
-        background: white; border-radius: 12px; padding: 20px 22px;
-        box-shadow: 0 4px 12px rgba(0,0,0,.04); border-top: 6px solid {BLUE};
-        transition: transform 0.2s; width: 100%;
+        background:white; border-radius:12px; padding:14px 16px; height:100%;
+        box-shadow:0 2px 10px rgba(0,0,0,.07); border-left:6px solid {BLUE};
     }}
-    .kpi:hover {{transform: translateY(-2px);}}
-    .kpi .label {{font-size: .8rem; color: #64748B; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;}}
-    .kpi .value {{font-size: 1.9rem; font-weight: 800; color: {NAVY}; margin-top: 4px;}}
-    .kpi.green {{border-top-color: {GREEN};}}
-    .kpi.red {{border-top-color: {RED};}}
-    .kpi.amber {{border-top-color: {AMBER};}}
-    .kpi.purple {{border-top-color: {PURPLE};}}
+    .kpi .label {{font-size:.72rem; color:#6B7A90; text-transform:uppercase; letter-spacing:1px; font-weight:700;}}
+    .kpi .value {{font-size:1.55rem; font-weight:800; color:{NAVY}; margin-top:3px;}}
+    .kpi.green {{border-left-color:{GREEN};}} .kpi.red {{border-left-color:{RED};}}
+    .kpi.amber {{border-left-color:{AMBER};}} .kpi.purple {{border-left-color:{PURPLE};}}
+    .kpi.teal {{border-left-color:{TEAL};}} .kpi.grey {{border-left-color:{GREY};}}
 
     .section-title {{
-        color: {NAVY}; font-weight: 800; font-size: 1.35rem;
-        border-left: 6px solid {BLUE}; padding-left: 12px; margin: 25px 0 15px 0;
+        color:{NAVY}; font-weight:800; font-size:1.1rem; border-bottom:3px solid {BLUE};
+        display:inline-block; padding-bottom:3px; margin:20px 0 10px 0; letter-spacing:.5px;
     }}
-    .action-container {{
-        background: white; border-radius: 14px; padding: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,.03); border: 1px solid #E2E8F0;
-        margin-bottom: 25px;
-    }}
+    .footer {{text-align:center; color:#8A97AB; font-size:.8rem; margin-top:34px;}}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# ------------------------------------------------------------------
-# SYSTEM DATABASE ENGINE (ERROR REPAIRED & STABLE)
-# ------------------------------------------------------------------
+# ==================================================================
+# DATABASE (auto-migrates old table to the new columns)
+# ==================================================================
+DB_COLS = {
+    "tender_no": "TEXT", "tender_name": "TEXT", "department": "TEXT", "party": "TEXT",
+    "category": "TEXT", "location": "TEXT", "participation": "TEXT", "not_part_reason": "TEXT",
+    "estimated_cost": "REAL", "amount": "REAL", "emd_amount": "REAL", "emd_status": "TEXT",
+    "tender_fee": "REAL", "publish_date": "TEXT", "due_date": "TEXT", "opening_date": "TEXT",
+    "result": "TEXT", "status": "TEXT", "work_order_no": "TEXT", "remarks": "TEXT",
+    "created_at": "TEXT",
+}
+TEXT_COLS = [c for c, t in DB_COLS.items() if t == "TEXT" and not c.endswith("_date") and c != "created_at"]
+NUM_COLS = ["estimated_cost", "amount", "emd_amount", "tender_fee"]
+DATE_COLS = ["publish_date", "due_date", "opening_date"]
+
+
 @st.cache_resource
 def get_conn():
-    conn = sqlite3.connect("tenders_master.db", check_same_thread=False)
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS tenders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tender_name TEXT,
-            party TEXT,
-            amount REAL,
-            due_date TEXT,
-            status TEXT,
-            remarks TEXT,
-            submission_type TEXT)"""
-    )
+    conn = sqlite3.connect("tenders.db", check_same_thread=False)
+    conn.execute("CREATE TABLE IF NOT EXISTS tenders (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(tenders)").fetchall()}
+    for col, typ in DB_COLS.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE tenders ADD COLUMN {col} {typ}")
     conn.commit()
-
-    # --- AUTOMATIC DATA RECOVERY FROM OLD DATABASES ---
-    for old_db in ["tenders_v3.db", "tenders_v2.db", "tenders.db"]:
-        try:
-            old_conn = sqlite3.connect(old_db)
-            old_df = pd.read_sql("SELECT * FROM tenders", old_conn)
-            if not old_df.empty:
-                for _, row in old_df.iterrows():
-                    # Fixed missing closing parenthesis issue here
-                    res = conn.execute(
-                        "SELECT COUNT(*) FROM tenders WHERE tender_name=? AND party=?", 
-                        (row['tender_name'], row['party'])
-                    ).fetchone()
-                    
-                    if res[0] == 0:
-                        rem = row.get('remarks', '')
-                        sub_t = row.get('submission_type', 'Online (E-Procurement)')
-                        conn.execute(
-                            "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
-                            (row['tender_name'], row['party'], row['amount'], row['due_date'], row['status'], rem, sub_t)
-                        )
-                conn.commit()
-            old_conn.close()
-        except Exception:
-            pass
-            
     return conn
+
 
 conn = get_conn()
 
+
+def fy_of(d):
+    if pd.isna(d):
+        return "Unknown"
+    y = d.year if d.month >= 4 else d.year - 1
+    return f"{y}-{str(y + 1)[2:]}"
+
+
+def alert_of(r):
+    if r["participation"] == "Not Participated":
+        return "⚪ Not Participated"
+    if r["status"] == "Completed":
+        return "✅ Completed"
+    if r["result"] in ("Lost", "Cancelled"):
+        return "⚫ Closed"
+    if pd.isna(r["days_left"]):
+        return "⚪ No Date"
+    if r["days_left"] < 0:
+        return "🔴 Overdue"
+    if r["days_left"] <= 7:
+        return "🟠 Due Soon"
+    return "🟢 On Track"
+
+
 def load_df() -> pd.DataFrame:
     df = pd.read_sql("SELECT * FROM tenders ORDER BY id DESC", conn)
-    if not df.empty:
-        df["due_date"] = pd.to_datetime(df["due_date"], errors="coerce")
-        today = pd.Timestamp(date.today())
-        df["days_left"] = (df["due_date"] - today).dt.days
-        df["alert"] = df.apply(
-            lambda r: "✅ Completed" if r["status"] == "Completed"
-            else ("🔷 Participated" if "Bidded" in str(r["status"])
-            else ("❌ Dropped" if "Dropped" in str(r["status"])
-            else ("🔴 Overdue" if r["days_left"] < 0 else ("🟠 Due Soon" if r["days_left"] <= 7 else "🟢 On Track")))),
-            axis=1,
-        )
+    if df.empty:
+        return df
+    for c in TEXT_COLS:
+        df[c] = df[c].fillna("")
+    for c in NUM_COLS:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    df["participation"] = df["participation"].replace("", "Participated")
+    df["result"] = df["result"].replace("", "Pending")
+    df["status"] = df["status"].replace("", "Pending")
+    df["emd_status"] = df["emd_status"].replace("", "Not Applicable")
+    for c in DATE_COLS:
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    df["days_left"] = (df["due_date"] - pd.Timestamp(date.today())).dt.days
+    df["fy"] = df["due_date"].apply(fy_of)
+    df["month"] = df["due_date"].dt.strftime("%Y-%m")
+    df["alert"] = df.apply(alert_of, axis=1)
     return df
 
-def money(x: float) -> str:
-    return f"{CURRENCY}{x:,.2f}"
+
+def insert_record(v: dict):
+    cols = list(v)
+    conn.execute(
+        f"INSERT INTO tenders ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", list(v.values())
+    )
+    conn.commit()
+
+
+def update_record(rid: int, v: dict):
+    sets = ",".join(f"{c}=?" for c in v)
+    conn.execute(f"UPDATE tenders SET {sets} WHERE id=?", list(v.values()) + [rid])
+    conn.commit()
+
+
+# ==================================================================
+# HELPERS
+# ==================================================================
+def inr(x: float) -> str:
+    x = float(x or 0)
+    if abs(x) >= 1e7:
+        return f"{CUR}{x / 1e7:.2f} Cr"
+    if abs(x) >= 1e5:
+        return f"{CUR}{x / 1e5:.2f} L"
+    return f"{CUR}{x:,.0f}"
+
 
 def kpi(col, label, value, cls=""):
     col.markdown(
@@ -167,82 +203,658 @@ def kpi(col, label, value, cls=""):
         unsafe_allow_html=True,
     )
 
-STATUS_OPTIONS = ["Pending", "Completed", "Bidded (Participated)", "Dropped (Not Participated)"]
 
-TABLE_CONFIG = {
-    "id": st.column_config.NumberColumn("Tender ID", width="small"),
-    "tender_name": "Tender Nomenclature",
-    "party": "Authority / Party",
-    "amount": st.column_config.NumberColumn("Valuation", format=f"{CURRENCY}%.2f"),
-    "due_date": st.column_config.DateColumn("Deadline Date", format="DD MMM YYYY"),
-    "status": "Current Status",
-    "submission_type": "Mode",
-    "days_left": st.column_config.NumberColumn("Days Remaining"),
-    "alert": "Operational Lifecycle",
+def title(text):
+    st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
+
+
+def style(fig, text, h=360):
+    fig.update_layout(
+        title=dict(text=text, font=dict(size=16, color=NAVY)),
+        height=h, margin=dict(t=55, b=15, l=15, r=15),
+        paper_bgcolor="white", plot_bgcolor="white",
+        font=dict(color="#33415C"), legend=dict(orientation="h", y=-0.12),
+    )
+    return fig
+
+
+def donut(df, col, text, cmap, key, value=None):
+    if df.empty:
+        st.info(f"{text}: data nahi hai")
+        return
+    if value:
+        g = df.groupby(col, as_index=False)[value].sum()
+        vals = value
+    else:
+        g = df.groupby(col).size().reset_index(name="count")
+        vals = "count"
+    fig = px.pie(g, names=col, values=vals, hole=0.58, color=col, color_discrete_map=cmap)
+    fig.update_traces(textinfo="percent", textfont_size=13)
+    total = g[vals].sum()
+    fig.add_annotation(text=f"<b>{inr(total) if value else int(total)}</b>", showarrow=False,
+                       font=dict(size=20, color=NAVY))
+    st.plotly_chart(style(fig, text, 340), use_container_width=True, key=key)
+
+
+TABLE_COLS = ["id", "tender_no", "tender_name", "department", "party", "category", "participation",
+              "amount", "due_date", "result", "status", "days_left", "alert"]
+ALL_COLS = ["id", "tender_no", "tender_name", "department", "party", "category", "location",
+            "participation", "not_part_reason", "estimated_cost", "amount", "emd_amount", "emd_status",
+            "tender_fee", "publish_date", "due_date", "opening_date", "result", "status",
+            "work_order_no", "remarks", "days_left", "alert", "fy"]
+CFG = {
+    "id": st.column_config.NumberColumn("ID", width="small"),
+    "tender_no": "Tender No.", "tender_name": "Tender Name", "department": "Department",
+    "party": "Party", "category": "Category", "location": "Location",
+    "participation": "Participation", "not_part_reason": "Reason (Not Participated)",
+    "estimated_cost": st.column_config.NumberColumn("Estimated Cost", format=f"{CUR}%.2f"),
+    "amount": st.column_config.NumberColumn("Quoted Amount", format=f"{CUR}%.2f"),
+    "emd_amount": st.column_config.NumberColumn("EMD", format=f"{CUR}%.2f"),
+    "emd_status": "EMD Status",
+    "tender_fee": st.column_config.NumberColumn("Tender Fee", format=f"{CUR}%.2f"),
+    "publish_date": st.column_config.DateColumn("Publish Date", format="DD MMM YYYY"),
+    "due_date": st.column_config.DateColumn("Submission Date", format="DD MMM YYYY"),
+    "opening_date": st.column_config.DateColumn("Opening Date", format="DD MMM YYYY"),
+    "result": "Result", "status": "Status", "work_order_no": "Work Order No.", "remarks": "Remarks",
+    "days_left": st.column_config.NumberColumn("Days Left"), "alert": "Alert", "fy": "FY",
 }
-TABLE_COLS = ["id", "tender_name", "party", "amount", "due_date", "status", "submission_type", "days_left", "alert"]
 
-# ------------------------------------------------------------------
-# SYSTEM BANNER SETUP
-# ------------------------------------------------------------------
+
+def show(df, cols=None, height=None):
+    st.dataframe(df[cols or TABLE_COLS], column_config=CFG, hide_index=True,
+                 use_container_width=True, height=height)
+
+
+def opts(base, current):
+    return base + [current] if current and current not in base else base
+
+
+# ==================================================================
+# RECORD FORM (shared by Add and Edit)
+# ==================================================================
+def record_form(prefix, rec=None):
+    def g(k, d=""):
+        return str(rec[k]) if rec is not None and pd.notna(rec[k]) and rec[k] != "" else d
+
+    def gn(k):
+        return float(rec[k]) if rec is not None and pd.notna(rec[k]) else 0.0
+
+    def gd(k, default):
+        return rec[k].date() if rec is not None and pd.notna(rec[k]) else default
+
+    st.markdown("**📌 Basic Details**")
+    c1, c2, c3 = st.columns(3)
+    tender_no = c1.text_input("Tender No.", value=g("tender_no"), key=f"{prefix}_no")
+    name = c2.text_input("Tender Name *", value=g("tender_name"), key=f"{prefix}_name")
+    dept = c3.text_input("Department / Organization", value=g("department"), key=f"{prefix}_dept")
+    c4, c5, c6 = st.columns(3)
+    party = c4.text_input("Party Name *", value=g("party"), key=f"{prefix}_party")
+    cats = opts(CATEGORIES, g("category"))
+    cat = c5.selectbox("Category", cats, index=cats.index(g("category")) if g("category") in cats else 0,
+                       key=f"{prefix}_cat")
+    loc = c6.text_input("Location", value=g("location"), key=f"{prefix}_loc")
+
+    st.markdown("**💰 Financials**")
+    f1, f2, f3, f4, f5 = st.columns(5)
+    est = f1.number_input("Estimated Cost", min_value=0.0, value=gn("estimated_cost"), step=1000.0, key=f"{prefix}_est")
+    amt = f2.number_input("Quoted Amount", min_value=0.0, value=gn("amount"), step=1000.0, key=f"{prefix}_amt")
+    emd = f3.number_input("EMD Amount", min_value=0.0, value=gn("emd_amount"), step=500.0, key=f"{prefix}_emd")
+    emds = opts(EMD_STATUS, g("emd_status"))
+    emd_s = f4.selectbox("EMD Status", emds,
+                         index=emds.index(g("emd_status")) if g("emd_status") in emds else 0, key=f"{prefix}_emds")
+    fee = f5.number_input("Tender Fee", min_value=0.0, value=gn("tender_fee"), step=100.0, key=f"{prefix}_fee")
+
+    st.markdown("**📅 Dates**")
+    d1, d2, d3 = st.columns(3)
+    pub = d1.date_input("Publish Date", value=gd("publish_date", date.today()), key=f"{prefix}_pub")
+    due = d2.date_input("Submission (Due) Date", value=gd("due_date", date.today() + timedelta(days=15)),
+                        key=f"{prefix}_due")
+    opn = d3.date_input("Opening Date", value=gd("opening_date", date.today() + timedelta(days=16)),
+                        key=f"{prefix}_open")
+
+    st.markdown("**🏁 Participation & Result**")
+    s1, s2, s3, s4 = st.columns(4)
+    part = s1.selectbox("Participation", PARTICIPATION,
+                        index=PARTICIPATION.index(g("participation", "Participated"))
+                        if g("participation", "Participated") in PARTICIPATION else 0, key=f"{prefix}_part")
+    res = s2.selectbox("Result", RESULTS,
+                       index=RESULTS.index(g("result", "Pending")) if g("result", "Pending") in RESULTS else 0,
+                       key=f"{prefix}_res")
+    stat = s3.selectbox("Status", STATUSES,
+                        index=STATUSES.index(g("status", "Pending")) if g("status", "Pending") in STATUSES else 0,
+                        key=f"{prefix}_stat")
+    wo = s4.text_input("Work Order No.", value=g("work_order_no"), key=f"{prefix}_wo")
+    reason = st.text_input("Reason (agar Not Participated hai)", value=g("not_part_reason"), key=f"{prefix}_reason")
+    remarks = st.text_area("Remarks", value=g("remarks"), key=f"{prefix}_rem", height=80)
+
+    return {
+        "tender_no": tender_no.strip(), "tender_name": name.strip(), "department": dept.strip(),
+        "party": party.strip(), "category": cat, "location": loc.strip(), "participation": part,
+        "not_part_reason": reason.strip(), "estimated_cost": est, "amount": amt, "emd_amount": emd,
+        "emd_status": emd_s, "tender_fee": fee, "publish_date": str(pub), "due_date": str(due),
+        "opening_date": str(opn), "result": res, "status": stat, "work_order_no": wo.strip(),
+        "remarks": remarks.strip(),
+    }
+
+
+# ==================================================================
+# RECORD MANAGER (filters + table + edit/delete)
+# ==================================================================
+def record_manager(df, key):
+    if df.empty:
+        st.info("Is section me abhi koi record nahi hai.")
+        return
+    f1, f2, f3, f4, f5 = st.columns([2.2, 1.6, 1.4, 1.4, 1.4])
+    q = f1.text_input("🔍 Search (No./Name/Party/Dept)", key=f"{key}_q")
+    party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{key}_p")
+    cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{key}_c")
+    res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{key}_r")
+    al_f = f5.selectbox("Alert", ["All"] + sorted(df["alert"].unique()), key=f"{key}_a")
+
+    fdf = df.copy()
+    if q:
+        m = (fdf["tender_name"].str.contains(q, case=False, na=False)
+             | fdf["party"].str.contains(q, case=False, na=False)
+             | fdf["tender_no"].str.contains(q, case=False, na=False)
+             | fdf["department"].str.contains(q, case=False, na=False))
+        fdf = fdf[m]
+    if party_f != "All":
+        fdf = fdf[fdf["party"] == party_f]
+    if cat_f != "All":
+        fdf = fdf[fdf["category"] == cat_f]
+    if res_f != "All":
+        fdf = fdf[fdf["result"] == res_f]
+    if al_f != "All":
+        fdf = fdf[fdf["alert"] == al_f]
+
+    full = st.checkbox("Saare columns dikhao", key=f"{key}_full")
+    st.caption(f"{len(fdf)} record(s)  |  Quoted value: {inr(fdf['amount'].sum())}")
+    show(fdf, ALL_COLS if full else TABLE_COLS, height=380)
+
+    if fdf.empty:
+        return
+    title("✏️ Edit / Delete Record")
+    names = {int(r.id): f"#{int(r.id)} | {r.tender_no} | {r.tender_name} | {r.party}" for r in fdf.itertuples()}
+    sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{key}_sel")
+    rec = fdf[fdf["id"] == sel].iloc[0]
+    with st.form(f"{key}_form_{sel}"):
+        vals = record_form(f"{key}_e{sel}", rec)
+        b1, b2, b3 = st.columns([1, 1, 2])
+        upd = b1.form_submit_button("🔄 Update Record", type="primary")
+        confirm = b3.checkbox("Delete confirm karta hu", key=f"{key}_cf{sel}")
+        dele = b2.form_submit_button("🗑️ Delete Record")
+        if upd:
+            if vals["tender_name"] and vals["party"]:
+                update_record(int(sel), vals)
+                st.success("✅ Record update ho gaya.")
+                st.rerun()
+            else:
+                st.error("Tender Name aur Party Name zaroori hai.")
+        if dele:
+            if confirm:
+                conn.execute("DELETE FROM tenders WHERE id=?", (int(sel),))
+                conn.commit()
+                st.warning(f"Record #{sel} delete ho gaya.")
+                st.rerun()
+            else:
+                st.error("Delete karne ke liye 'Delete confirm' tick karein.")
+
+
+def quick_edit(df, col, options, key):
+    base = df[["id", "tender_no", "tender_name", "party", col]].reset_index(drop=True)
+    edited = st.data_editor(
+        base, key=key, hide_index=True, use_container_width=True,
+        disabled=["id", "tender_no", "tender_name", "party"],
+        column_config={col: st.column_config.SelectboxColumn(col.replace("_", " ").title(), options=options,
+                                                              required=True)},
+    )
+    if st.button("💾 Save Changes", key=f"{key}_save", type="primary"):
+        n = 0
+        for i, row in edited.iterrows():
+            if row[col] != base.loc[i, col]:
+                conn.execute(f"UPDATE tenders SET {col}=? WHERE id=?", (row[col], int(row["id"])))
+                n += 1
+        conn.commit()
+        st.success(f"✅ {n} record update hue.")
+        st.rerun()
+
+
+def summary(df, by):
+    d = df.copy()
+    d[by] = d[by].replace("", "Unknown")
+    g = d.groupby(by).agg(
+        Total=("id", "count"),
+        Participated=("participation", lambda s: (s == "Participated").sum()),
+        Not_Participated=("participation", lambda s: (s == "Not Participated").sum()),
+        Won=("result", lambda s: (s == "Won").sum()),
+        Lost=("result", lambda s: (s == "Lost").sum()),
+        Quoted_Value=("amount", "sum"),
+    ).reset_index()
+    won_val = d[d["result"] == "Won"].groupby(by)["amount"].sum()
+    g["Won_Value"] = g[by].map(won_val).fillna(0)
+    dec = g["Won"] + g["Lost"]
+    g["Win_%"] = ((g["Won"] / dec * 100).where(dec > 0, 0)).round(1)
+    return g
+
+
+# ==================================================================
+# HEADER + NAVIGATION
+# ==================================================================
 st.markdown(
-    '<div class="banner"><h1>📑 SSS TENDER COMMAND CONTROL STATION</h1>'
-    "<p>A TO Z EXECUTIVE LEVEL ADMINISTRATIVE SUITE — PERSISTENT VISUAL CONTROL</p></div>",
+    f'<div class="topbar"><span>OFFICIAL TENDER MANAGEMENT PORTAL</span>'
+    f'<span>{datetime.today().strftime("%A, %d %B %Y")}</span></div>'
+    '<div class="banner"><h1>TENDER DASHBOARD - SSS</h1>'
+    "<p>TENDER PARTICIPATION • RESULT • EMD • REPORTING SYSTEM</p></div>",
     unsafe_allow_html=True,
 )
 
-# NAVBAR SYSTEM
-PAGES = ["🏠 Home / Overview", "➕ Add Record Entry", "✏️ Edit / Delete Entry", "📊 System Exporter"]
+PAGES = ["Dashboard", "Add Record", "View Records", "Participated", "Not Participated",
+         "Results", "EMD Tracker", "Reports", "Export & Reminder", "Backup & Import"]
+ICONS = {"Dashboard": "📊", "Add Record": "➕", "View Records": "📋", "Participated": "✅",
+         "Not Participated": "🚫", "Results": "🏆", "EMD Tracker": "💳", "Reports": "📈",
+         "Export & Reminder": "🔔", "Backup & Import": "💾"}
 
 if "page" not in st.session_state:
-    st.session_state.page = "🏠 Home / Overview"
+    st.session_state.page = "Dashboard"
 
-def navigate(p):
+
+def go(p):
     st.session_state.page = p
 
-nav_cols = st.columns(4, gap="small")
-for col, p in zip(nav_cols, PAGES):
-    col.button(
-        p.upper(),
-        key=f"nav_{p}",
-        on_click=navigate,
-        args=(p,),
-        type="primary" if st.session_state.page == p else "secondary",
-        use_container_width=True,
-    )
+
+for row in (PAGES[:5], PAGES[5:]):
+    cols = st.columns(5, gap="small")
+    for col, p in zip(cols, row):
+        col.button(f"{ICONS[p]}  {p.upper()}", key=f"nav_{p}", on_click=go, args=(p,),
+                   type="primary" if st.session_state.page == p else "secondary",
+                   use_container_width=True)
 
 page = st.session_state.page
-st.write("")
-df = load_df()
+ALL = load_df()
+EMPTY_MSG = "Abhi koi record nahi hai. 'ADD RECORD' se pehla tender add karein."
 
-# ------------------------------------------------------------------
-# DYNAMIC TOP CONTROL DECK PANEL (FORM PANEL INTERACTION)
-# ------------------------------------------------------------------
-st.markdown('<div class="action-container">', unsafe_allow_html=True)
+# ==================================================================
+# DASHBOARD
+# ==================================================================
+if page == "Dashboard":
+    if ALL.empty:
+        st.info(EMPTY_MSG)
+    else:
+        f1, f2, f3 = st.columns(3)
+        fy = f1.selectbox("Financial Year", ["All"] + sorted(ALL["fy"].unique(), reverse=True))
+        cat = f2.selectbox("Category", ["All"] + sorted([c for c in ALL["category"].unique() if c]))
+        pty = f3.selectbox("Party", ["All"] + sorted([c for c in ALL["party"].unique() if c]))
+        d = ALL.copy()
+        if fy != "All":
+            d = d[d["fy"] == fy]
+        if cat != "All":
+            d = d[d["category"] == cat]
+        if pty != "All":
+            d = d[d["party"] == pty]
 
-if page == "🏠 Home / Overview":
-    st.info("💡 Welcome to Command Center. Use the Navigation Panel above to register entries or execute live edits. Performance telemetry charts and master databases are continuously rendering below.")
+        if d.empty:
+            st.warning("Selected filter me koi record nahi.")
+        else:
+            part = d[d["participation"] == "Participated"]
+            notp = d[d["participation"] == "Not Participated"]
+            won = part[part["result"] == "Won"]
+            lost = part[part["result"] == "Lost"]
+            pend = part[part["result"] == "Pending"]
+            decided = len(won) + len(lost)
+            win_rate = len(won) / decided * 100 if decided else 0.0
+            overdue = d[d["alert"] == "🔴 Overdue"]
+            due_soon = d[d["alert"] == "🟠 Due Soon"]
 
-elif page == "➕ Add Record Entry":
-    st.subheader("📝 Register New Tender Profile")
-    with st.form("master_add_form", clear_on_submit=True):
-        a1, a2 = st.columns(2, gap="medium")
-        name = a1.text_input("Tender ID Name/Number Code *")
-        party = a2.text_input("Issuing Client/Party Name *")
-        
-        a3, a4, a5 = st.columns(3, gap="medium")
-        amount = a3.number_input("Estimated Tender Valuation (INR)", min_value=0.0, step=1000.0)
-        due = a4.date_input("Target Submission Deadline", value=date.today() + timedelta(days=15))
-        status = a5.selectbox("Initial Management Status", STATUS_OPTIONS)
-        
-        a6, a7 = st.columns(2, gap="medium")
-        submission_type = a6.selectbox("Submission Portal Type", ["Online (E-Procurement)", "Offline/Physical", "Global Tender Enquiry"])
-        remarks = a7.text_area("Administrative Remarks / Notes")
-        
-        save = st.form_submit_button("💾 Commit Record to Database Securely", type="primary")
+            title("Key Indicators")
+            a = st.columns(6)
+            kpi(a[0], "Total Tenders", len(d))
+            kpi(a[1], "Participated", len(part), "teal")
+            kpi(a[2], "Not Participated", len(notp), "grey")
+            kpi(a[3], "Won", len(won), "green")
+            kpi(a[4], "Lost", len(lost), "red")
+            kpi(a[5], "Win Rate", f"{win_rate:.1f}%", "purple")
+            st.write("")
+            b = st.columns(6)
+            kpi(b[0], "Total Quoted Value", inr(part["amount"].sum()))
+            kpi(b[1], "Won Value", inr(won["amount"].sum()), "green")
+            kpi(b[2], "Result Pending Value", inr(pend["amount"].sum()), "amber")
+            kpi(b[3], "EMD Locked (Paid)", inr(part[part["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
+            kpi(b[4], "Overdue", len(overdue), "red")
+            kpi(b[5], "Due in 7 Days", len(due_soon), "amber")
+
+            title("Participation & Results")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                donut(d, "participation", "Participation Split", CMAP_PART, "dn_part")
+            with c2:
+                donut(part, "result", "Result Status (Participated)", CMAP_RESULT, "dn_res")
+            with c3:
+                gauge = go.Figure(go.Indicator(
+                    mode="gauge+number", value=win_rate, number={"suffix": "%"},
+                    gauge={"axis": {"range": [0, 100]}, "bar": {"color": GREEN},
+                           "steps": [{"range": [0, 33], "color": "#F8D7D7"},
+                                     {"range": [33, 66], "color": "#FBEBC8"},
+                                     {"range": [66, 100], "color": "#D5F0E4"}]}))
+                st.plotly_chart(style(gauge, "Win Rate (Won ÷ Decided)", 340), use_container_width=True, key="gauge")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                fun = go.Figure(go.Funnel(
+                    y=["Total Tenders", "Participated", "Result Declared", "Won"],
+                    x=[len(d), len(part), decided, len(won)],
+                    marker={"color": [NAVY, BLUE, TEAL, GREEN]}, textinfo="value+percent initial"))
+                st.plotly_chart(style(fun, "Tender Funnel", 360), use_container_width=True, key="funnel")
+            with c2:
+                m = d.dropna(subset=["month"]).groupby(["month", "participation"]).size().reset_index(name="count")
+                if m.empty:
+                    st.info("Monthly trend ke liye dates chahiye.")
+                else:
+                    fig = px.bar(m, x="month", y="count", color="participation", barmode="stack",
+                                 color_discrete_map=CMAP_PART, labels={"month": "Month", "count": "Tenders"})
+                    st.plotly_chart(style(fig, "Monthly Tenders (by Submission Date)", 360),
+                                    use_container_width=True, key="monthly")
+
+            title("Financial Analysis")
+            c1, c2 = st.columns(2)
+            with c1:
+                tp = part.groupby("party", as_index=False)["amount"].sum().sort_values("amount").tail(10)
+                if tp.empty or tp["amount"].sum() == 0:
+                    st.info("Party-wise value ke liye Quoted Amount bharein.")
+                else:
+                    fig = px.bar(tp, x="amount", y="party", orientation="h", color="amount",
+                                 color_continuous_scale=["#BBD0F2", BLUE, NAVY], labels={"amount": "Quoted Amount", "party": ""})
+                    fig.update_coloraxes(showscale=False)
+                    st.plotly_chart(style(fig, "Top 10 Parties by Quoted Value", 380),
+                                    use_container_width=True, key="topparty")
+            with c2:
+                tm = d[d["amount"] > 0].copy()
+                if tm.empty:
+                    st.info("Treemap ke liye Quoted Amount bharein.")
+                else:
+                    tm["department"] = tm["department"].replace("", "Unknown")
+                    tm["category"] = tm["category"].replace("", "Unknown")
+                    fig = px.treemap(tm, path=[px.Constant("All"), "category", "department", "party"],
+                                     values="amount", color_discrete_sequence=PALETTE)
+                    st.plotly_chart(style(fig, "Value Map: Category → Department → Party", 380),
+                                    use_container_width=True, key="treemap")
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                donut(part[part["emd_amount"] > 0], "emd_status", "EMD by Amount", CMAP_EMD, "dn_emd", "emd_amount")
+            with c2:
+                donut(d, "status", "Work Status", CMAP_STATUS, "dn_stat")
+            with c3:
+                comp = won.copy()
+                comp = comp[(comp["estimated_cost"] > 0) & (comp["amount"] > 0)]
+                if comp.empty:
+                    st.info("Estimated vs Quoted chart ke liye Won tenders me dono amount chahiye.")
+                else:
+                    comp = comp.head(8)
+                    fig = go.Figure()
+                    fig.add_bar(x=comp["tender_name"], y=comp["estimated_cost"], name="Estimated", marker_color=GREY)
+                    fig.add_bar(x=comp["tender_name"], y=comp["amount"], name="Quoted", marker_color=BLUE)
+                    fig.update_layout(barmode="group")
+                    st.plotly_chart(style(fig, "Won: Estimated vs Quoted", 340), use_container_width=True, key="estq")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                al = d.groupby("alert").size().reset_index(name="count")
+                fig = px.bar(al, x="alert", y="count", color="alert", labels={"alert": "", "count": "Tenders"},
+                             color_discrete_map={"🔴 Overdue": RED, "🟠 Due Soon": AMBER, "🟢 On Track": GREEN,
+                                                 "✅ Completed": TEAL, "⚪ Not Participated": GREY,
+                                                 "⚫ Closed": "#555", "⚪ No Date": GREY})
+                fig.update_layout(showlegend=False)
+                st.plotly_chart(style(fig, "Deadline Alert Summary", 340), use_container_width=True, key="alerts")
+            with c2:
+                fyv = d.groupby("fy").agg(Quoted=("amount", "sum")).reset_index()
+                fyw = won.groupby("fy")["amount"].sum().reset_index(name="Won")
+                fyv = fyv.merge(fyw, on="fy", how="left").fillna(0)
+                fig = px.bar(fyv, x="fy", y=["Quoted", "Won"], barmode="group",
+                             color_discrete_sequence=[BLUE, GREEN], labels={"fy": "Financial Year", "value": "Amount"})
+                st.plotly_chart(style(fig, "Financial Year-wise Value", 340), use_container_width=True, key="fyv")
+
+            title("Quick Tables")
+            t1, t2, t3, t4 = st.tabs(["🆕 Recent Tenders", "⏰ Due in next 15 days", "🔴 Overdue", "🚫 Not Participated"])
+            with t1:
+                show(d.head(10))
+            with t2:
+                up = d[(d["status"] == "Pending") & (d["participation"] == "Participated")
+                       & (d["days_left"] >= 0) & (d["days_left"] <= 15)].sort_values("days_left")
+                show(up) if not up.empty else st.success("Agle 15 din me koi deadline nahi.")
+            with t3:
+                show(overdue) if not overdue.empty else st.success("Koi overdue tender nahi.")
+            with t4:
+                show(notp.head(10)) if not notp.empty else st.info("Koi record nahi.")
+
+# ==================================================================
+# ADD RECORD
+# ==================================================================
+elif page == "Add Record":
+    title("➕ Add New Tender Record")
+    with st.form("add_form", clear_on_submit=True):
+        vals = record_form("add")
+        save = st.form_submit_button("💾 Save Record", type="primary")
         if save:
-            if name.strip() and party.strip():
-                conn.execute(
-                    "INSERT INTO tenders (tender_name, party, amount, due_date, status, remarks, submission_type) VALUES (?,?,?,?,?,?,?)",
-                    (name.strip(), party.strip(), amount, str(due), status, remarks, submission_type),
-                )
+            if vals["tender_name"] and vals["party"]:
+                vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                insert_record(vals)
+                st.success("✅ Record save ho gaya!")
+            else:
+                st.error("❌ Tender Name aur Party Name dono bharna zaroori hai.")
+    if not ALL.empty:
+        title("Last 5 Entries")
+        show(ALL.head(5))
+
+# ==================================================================
+# VIEW / PARTICIPATED / NOT PARTICIPATED
+# ==================================================================
+elif page == "View Records":
+    title("📋 All Tender Records")
+    record_manager(ALL, "all")
+
+elif page == "Participated":
+    title("✅ Participated Tenders")
+    if not ALL.empty:
+        p = ALL[ALL["participation"] == "Participated"]
+        k = st.columns(4)
+        kpi(k[0], "Participated", len(p), "teal")
+        kpi(k[1], "Quoted Value", inr(p["amount"].sum()))
+        kpi(k[2], "Result Pending", len(p[p["result"] == "Pending"]), "amber")
+        kpi(k[3], "Won", len(p[p["result"] == "Won"]), "green")
+        st.write("")
+        record_manager(p, "part")
+    else:
+        st.info(EMPTY_MSG)
+
+elif page == "Not Participated":
+    title("🚫 Not Participated Tenders")
+    if not ALL.empty:
+        n = ALL[ALL["participation"] == "Not Participated"]
+        k = st.columns(3)
+        kpi(k[0], "Not Participated", len(n), "grey")
+        kpi(k[1], "Estimated Value Missed", inr(n["estimated_cost"].sum()), "red")
+        kpi(k[2], "Unique Parties", n["party"].nunique(), "purple")
+        st.write("")
+        if not n.empty:
+            r = n.assign(reason=n["not_part_reason"].replace("", "Not specified")).groupby("reason").size().reset_index(name="count")
+            fig = px.pie(r, names="reason", values="count", hole=0.55, color_discrete_sequence=PALETTE)
+            st.plotly_chart(style(fig, "Reasons for Not Participating", 340), use_container_width=True, key="reasons")
+        record_manager(n, "notpart")
+    else:
+        st.info(EMPTY_MSG)
+
+# ==================================================================
+# RESULTS
+# ==================================================================
+elif page == "Results":
+    title("🏆 Tender Results")
+    part = ALL[ALL["participation"] == "Participated"] if not ALL.empty else ALL
+    if part.empty:
+        st.info("Participated tenders nahi hain.")
+    else:
+        won, lost = part[part["result"] == "Won"], part[part["result"] == "Lost"]
+        pend, canc = part[part["result"] == "Pending"], part[part["result"] == "Cancelled"]
+        dec = len(won) + len(lost)
+        k = st.columns(5)
+        kpi(k[0], "Won", len(won), "green")
+        kpi(k[1], "Lost", len(lost), "red")
+        kpi(k[2], "Pending", len(pend), "amber")
+        kpi(k[3], "Cancelled", len(canc), "grey")
+        kpi(k[4], "Win Rate", f"{(len(won) / dec * 100 if dec else 0):.1f}%", "purple")
+        st.write("")
+        t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
+        with t1:
+            show(won) if not won.empty else st.info("Koi record nahi.")
+        with t2:
+            show(lost) if not lost.empty else st.info("Koi record nahi.")
+        with t3:
+            show(pend) if not pend.empty else st.info("Koi record nahi.")
+        with t4:
+            show(canc) if not canc.empty else st.info("Koi record nahi.")
+        title("⚡ Quick Result Update")
+        st.caption("Table me Result badlein aur 'Save Changes' dabayein.")
+        quick_edit(part, "result", RESULTS, "qe_result")
+
+# ==================================================================
+# EMD TRACKER
+# ==================================================================
+elif page == "EMD Tracker":
+    title("💳 EMD Tracker")
+    part = ALL[(ALL["participation"] == "Participated")] if not ALL.empty else ALL
+    if part.empty:
+        st.info("Participated tenders nahi hain.")
+    else:
+        e = part[part["emd_amount"] > 0]
+        k = st.columns(5)
+        kpi(k[0], "Total EMD", inr(e["emd_amount"].sum()))
+        kpi(k[1], "Paid (Locked)", inr(e[e["emd_status"] == "Paid"]["emd_amount"].sum()), "purple")
+        kpi(k[2], "Refunded", inr(e[e["emd_status"] == "Refunded"]["emd_amount"].sum()), "green")
+        kpi(k[3], "Pending", inr(e[e["emd_status"] == "Pending"]["emd_amount"].sum()), "amber")
+        kpi(k[4], "Forfeited", inr(e[e["emd_status"] == "Forfeited"]["emd_amount"].sum()), "red")
+        st.write("")
+        c1, c2 = st.columns(2)
+        with c1:
+            donut(e, "emd_status", "EMD by Status (Amount)", CMAP_EMD, "emd_d", "emd_amount")
+        with c2:
+            if not e.empty:
+                g = e.groupby(["party", "emd_status"], as_index=False)["emd_amount"].sum()
+                fig = px.bar(g, x="party", y="emd_amount", color="emd_status", color_discrete_map=CMAP_EMD,
+                             labels={"emd_amount": "EMD", "party": "Party"})
+                st.plotly_chart(style(fig, "EMD by Party", 340), use_container_width=True, key="emd_b")
+        title("⚡ Quick EMD Status Update")
+        quick_edit(part, "emd_status", EMD_STATUS, "qe_emd")
+
+# ==================================================================
+# REPORTS
+# ==================================================================
+elif page == "Reports":
+    title("📈 Reports & Analysis")
+    if ALL.empty:
+        st.info(EMPTY_MSG)
+    else:
+        tabs = st.tabs(["Party-wise", "Department-wise", "Category-wise", "Financial Year-wise", "Monthly"])
+        for tab, (by, label) in zip(tabs, [("party", "Party"), ("department", "Department"),
+                                           ("category", "Category"), ("fy", "Financial Year"),
+                                           ("month", "Month")]):
+            with tab:
+                src = ALL.dropna(subset=["month"]) if by == "month" else ALL
+                g = summary(src, by)
+                st.dataframe(g.rename(columns={by: label, "Not_Participated": "Not Participated",
+                                               "Quoted_Value": "Quoted Value", "Won_Value": "Won Value"}),
+                             hide_index=True, use_container_width=True)
+                fig = px.bar(g, x=by, y=["Quoted_Value", "Won_Value"], barmode="group",
+                             color_discrete_sequence=[BLUE, GREEN], labels={by: label, "value": "Amount"})
+                st.plotly_chart(style(fig, f"{label}-wise Quoted vs Won Value", 360),
+                                use_container_width=True, key=f"rep_{by}")
+
+# ==================================================================
+# EXPORT & REMINDER
+# ==================================================================
+elif page == "Export & Reminder":
+    if ALL.empty:
+        st.info("Export ya reminder ke liye koi data nahi hai.")
+    else:
+        title("🔔 Reminders")
+        days = st.slider("Agle kitne din ke tenders dikhane hain?", 1, 60, 7)
+        act = ALL[(ALL["participation"] == "Participated") & (ALL["status"] == "Pending")
+                  & ~ALL["result"].isin(["Lost", "Cancelled"])]
+        overdue = act[act["days_left"] < 0]
+        upcoming = act[(act["days_left"] >= 0) & (act["days_left"] <= days)].sort_values("days_left")
+        k = st.columns(2)
+        kpi(k[0], "Overdue Tenders", len(overdue), "red")
+        kpi(k[1], f"Due in next {days} days", len(upcoming), "amber")
+        st.write("")
+        if not overdue.empty:
+            st.error(f"🔴 {len(overdue)} tender(s) ki due date nikal chuki hai!")
+            show(overdue)
+        if not upcoming.empty:
+            st.warning(f"🟠 {len(upcoming)} tender(s) {days} din ke andar due hain.")
+            show(upcoming)
+        if overdue.empty and upcoming.empty:
+            st.success("🟢 Koi urgent reminder nahi.")
+
+        title("📤 Export Data")
+        exp = ALL[[c for c in ALL_COLS if c not in ("days_left", "alert")]].copy()
+        for c in DATE_COLS:
+            exp[c] = exp[c].dt.strftime("%Y-%m-%d")
+        stamp = datetime.today().strftime("%Y%m%d")
+        d1, d2 = st.columns(2)
+        d1.download_button("📥 Download CSV (All)", exp.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"tenders_{stamp}.csv", mime="text/csv", use_container_width=True)
+        try:
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+                exp.to_excel(xw, index=False, sheet_name="All Tenders")
+                exp[exp["participation"] == "Participated"].to_excel(xw, index=False, sheet_name="Participated")
+                exp[exp["participation"] == "Not Participated"].to_excel(xw, index=False, sheet_name="Not Participated")
+                exp[exp["result"] == "Won"].to_excel(xw, index=False, sheet_name="Won")
+                exp[exp["result"] == "Lost"].to_excel(xw, index=False, sheet_name="Lost")
+            d2.download_button("📥 Download Excel (Multi-sheet)", buf.getvalue(), file_name=f"tenders_{stamp}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+        except Exception:
+            d2.caption("Excel export ke liye requirements.txt me `openpyxl` add karein.")
+
+# ==================================================================
+# BACKUP & IMPORT
+# ==================================================================
+elif page == "Backup & Import":
+    title("💾 Database Backup")
+    try:
+        with open("tenders.db", "rb") as f:
+            st.download_button("📥 Download Database Backup (tenders.db)", f.read(),
+                               file_name=f"tenders_backup_{datetime.today().strftime('%Y%m%d')}.db",
+                               use_container_width=True)
+    except Exception:
+        st.warning("Database file abhi available nahi hai.")
+    st.caption("Streamlit Cloud par restart ke baad database reset ho sakta hai, isliye regular backup lete rahein.")
+
+    title("📥 Import from CSV / Excel")
+    st.caption("File me ye columns ho sakte hain: " + ", ".join(DB_COLS.keys()) + ". 'tender_name' zaroori hai.")
+    up = st.file_uploader("File upload karein", type=["csv", "xlsx"])
+    if up:
+        try:
+            idf = pd.read_csv(up) if up.name.endswith(".csv") else pd.read_excel(up)
+            keep = [c for c in idf.columns if c in DB_COLS]
+            if "tender_name" not in keep:
+                st.error("'tender_name' column nahi mila.")
+            else:
+                idf = idf[keep].copy()
+                for c in DATE_COLS:
+                    if c in idf:
+                        idf[c] = pd.to_datetime(idf[c], errors="coerce").dt.strftime("%Y-%m-%d")
+                st.write(f"{len(idf)} row(s) import ke liye ready:")
+                st.dataframe(idf.head(10), hide_index=True, use_container_width=True)
+                if st.button("✅ Import Karein", type="primary"):
+                    idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    idf.to_sql("tenders", conn, if_exists="append", index=False)
+                    conn.commit()
+                    st.success("Import complete!")
+                    st.rerun()
+        except Exception as ex:
+            st.error(f"File read nahi ho payi: {ex}")
+
+st.markdown(
+    f'<div class="footer">© SSS Tender Management Portal • {datetime.today().year}</div>',
+    unsafe_allow_html=True,
+)
