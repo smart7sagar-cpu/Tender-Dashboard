@@ -19,7 +19,7 @@ def do_rerun():
 
 
 def _s(obj, name, *args, **kwargs):
-    """use_container_width purane versions me, width='stretch' naye versions me."""
+    \"\"\"use_container_width purane versions me, width='stretch' naye versions me.\"\"\"
     kwargs.pop("use_container_width", None)
     fn = getattr(obj, name)
     try:
@@ -64,7 +64,7 @@ CATEGORIES = ["Works", "Supply", "Service", "Consultancy", "Maintenance", "Other
 # CSS  (full width, official portal look)
 # ==================================================================
 st.markdown(
-    f"""
+    f\"\"\"
 <style>
     [data-testid="stSidebar"], [data-testid="collapsedControl"] {{display:none;}}
     header[data-testid="stHeader"] {{background:transparent;}}
@@ -132,7 +132,7 @@ st.markdown(
     div.element-container:has(.sss-mk), div[data-testid="stElementContainer"]:has(.sss-mk),
     div[data-testid="element-container"]:has(.sss-mk) {{display:none;}}
 </style>
-""",
+\"\"\",
     unsafe_allow_html=True,
 )
 
@@ -160,7 +160,7 @@ def get_conn():
     
     with conn.cursor() as cur:
         # Tenders Table
-        cur.execute("""
+        cur.execute(\"\"\"
             CREATE TABLE IF NOT EXISTS tenders (
                 id SERIAL PRIMARY KEY,
                 tender_no TEXT, tender_name TEXT, department TEXT, party TEXT,
@@ -170,16 +170,16 @@ def get_conn():
                 result TEXT, status TEXT, work_order_no TEXT, remarks TEXT,
                 work_description TEXT, no_of_awardees INTEGER, created_at TEXT
             )
-        """)
+        \"\"\")
         # Users Table
-        cur.execute("""
+        cur.execute(\"\"\"
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY, 
                 username TEXT UNIQUE, 
                 password TEXT, 
                 role TEXT
             )
-        """)
+        \"\"\")
         cur.execute("SELECT COUNT(*) FROM users")
         if cur.fetchone()[0] == 0:
             cur.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ("admin", "admin123", "admin"))
@@ -198,7 +198,7 @@ if "logged_in" not in st.session_state:
 if not st.session_state.logged_in:
     st.markdown(
         f'<div class="topbar"><span>SECURE TENDER PORTAL</span>'
-        f'<span>{{datetime.today().strftime("%A, %d %B %Y")}}</span></div>'
+        f'<span>{datetime.today().strftime("%A, %d %B %Y")}</span></div>'
         '<div class="banner"><h1>🔒 LOGIN PORTAL</h1>'
         "<p>PLEASE ENTER YOUR CREDENTIALS TO ACCESS DATA</p></div>",
         unsafe_allow_html=True,
@@ -235,7 +235,7 @@ def fy_of(d):
     if pd.isna(d):
         return "Unknown"
     y = d.year if d.month >= 4 else d.year - 1
-    return f"{y}-{{str(y + 1)[2:]}}"
+    return f"{y}-{str(y + 1)[2:]}"
 
 
 def alert_of(r):
@@ -288,15 +288,15 @@ def insert_record(v: dict):
     cols = list(v)
     with conn.cursor() as cur:
         cur.execute(
-            f"INSERT INTO tenders ({{','.join(cols)}}) VALUES ({{','.join(['%s'] * len(cols))}})", list(v.values())
+            f"INSERT INTO tenders ({','.join(cols)}) VALUES ({','.join(['%s'] * len(cols))})", list(v.values())
         )
     bump()
 
 
 def update_record(rid: int, v: dict):
-    sets = ",".join(f"{{c}}=%s" for c in v)
+    sets = ",".join(f"{c}=%s" for c in v)
     with conn.cursor() as cur:
-        cur.execute(f"UPDATE tenders SET {{sets}} WHERE id=%s", list(v.values()) + [rid])
+        cur.execute(f"UPDATE tenders SET {sets} WHERE id=%s", list(v.values()) + [rid])
     bump()
 
 
@@ -306,21 +306,21 @@ def update_record(rid: int, v: dict):
 def inr(x: float) -> str:
     x = float(x or 0)
     if abs(x) >= 1e7:
-        return f"{CUR}{{x / 1e7:.2f}} Cr"
+        return f"{CUR}{x / 1e7:.2f} Cr"
     if abs(x) >= 1e5:
-        return f"{CUR}{{x / 1e5:.2f}} L"
-    return f"{CUR}{{x:,.0f}}"
+        return f"{CUR}{x / 1e5:.2f} L"
+    return f"{CUR}{x:,.0f}"
 
 
 def kpi(col, label, value, cls=""):
     col.markdown(
-        f'<div class="kpi {{cls}}"><div class="label">{{label}}</div><div class="value">{{value}}</div></div>',
+        f'<div class="kpi {cls}"><div class="label">{label}</div><div class="value">{value}</div></div>',
         unsafe_allow_html=True,
     )
 
 
 def title(text):
-    st.markdown(f'<div class="section-title">{{text}}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 
 def style(fig, text, h=360):
@@ -335,7 +335,7 @@ def style(fig, text, h=360):
 
 def donut(df, col, text, cmap, key, value=None):
     if df.empty:
-        st.info(f"{{text}}: data nahi hai")
+        st.info(f"{text}: data nahi hai")
         return
     if value:
         g = df.groupby(col, as_index=False)[value].sum()
@@ -346,7 +346,7 @@ def donut(df, col, text, cmap, key, value=None):
     fig = px.pie(g, names=col, values=vals, hole=0.58, color=col, color_discrete_map=cmap)
     fig.update_traces(textinfo="percent", textfont_size=13)
     total = g[vals].sum()
-    fig.add_annotation(text=f"<b>{{inr(total) if value else int(total)}}</b>", showarrow=False,
+    fig.add_annotation(text=f"<b>{inr(total) if value else int(total)}</b>", showarrow=False,
                        font=dict(size=20, color=NAVY))
     _s(st, "plotly_chart", style(fig, text, 340), use_container_width=True, key=key)
 
@@ -388,7 +388,7 @@ def opts(base, current):
 # ==================================================================
 # ENTER = AGLA FIELD  (browser-side JS)
 # ==================================================================
-_NAV_JS = """
+_NAV_JS = \"\"\"
 (function () {
   var p = window.parent, d = p.document;
   if (p.__sssEnterNav) { d.removeEventListener('keydown', p.__sssEnterNav, true); }
@@ -431,14 +431,14 @@ _NAV_JS = """
     setTimeout(function () { var l = fields(); if (l && l.length) go(l[0]); }, 400);
   }
 })();
-"""
+\"\"\"
 
 
 def enter_nav(focus_first=False):
     try:
         import streamlit.components.v1 as components
         js = _NAV_JS.replace("__FOCUS_FIRST__", "true" if focus_first else "false")
-        components.html(f"<script>{{js}}</script>", height=0)
+        components.html(f"<script>{js}</script>", height=0)
     except Exception:
         pass
 
@@ -460,7 +460,7 @@ def _pick(val, options, default=None):
 
 
 def record_form(prefix, rec=None, on_last=None, last_args=()):
-    P = lambda n: f"{{prefix}}_{{n}}"
+    P = lambda n: f"{prefix}_{n}"
 
     def g(k, d=""):
         if rec is not None and k in rec.index and pd.notna(rec[k]) and rec[k] != "":
@@ -538,7 +538,7 @@ def record_form(prefix, rec=None, on_last=None, last_args=()):
 
 def collect(prefix):
     s = st.session_state
-    G = lambda n, d="": s.get(f"{{prefix}}_{{n}}", d)
+    G = lambda n, d="": s.get(f"{prefix}_{n}", d)
     today = date.today()
     return {
         "tender_no": str(G("no")).strip(), "tender_name": str(G("name")).strip(),
@@ -564,7 +564,7 @@ def save_new():
         vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         insert_record(vals)
         for k in FIELD_KEYS:
-            s.pop(f"add_{{k}}", None)
+            s.pop(f"add_{k}", None)
         s["ts_add"] = time.time()
         s["focus_first"] = True
         s["msg_add"] = ("ok", "✅ Record save ho gaya! Naya record bhar sakte hain.")
@@ -582,7 +582,7 @@ def update_cb(rid, prefix):
     vals = collect(prefix)
     if vals["tender_name"] and vals["party"]:
         update_record(int(rid), vals)
-        s["msg_edit"] = ("ok", f"✅ Record #{{rid}} update ho gaya.")
+        s["msg_edit"] = ("ok", f"✅ Record #{rid} update ho gaya.")
     else:
         s["msg_edit"] = ("err", "❌ Tender Name aur Party Name zaroori hai.")
 
@@ -594,11 +594,11 @@ def update_enter(rid, prefix):
 
 def delete_cb(rid, prefix):
     s = st.session_state
-    if s.get(f"{{prefix}}_cf"):
+    if s.get(f"{prefix}_cf"):
         with conn.cursor() as cur:
             cur.execute("DELETE FROM tenders WHERE id=%s", (int(rid),))
         bump()
-        s["msg_edit"] = ("ok", f"🗑️ Record #{{rid}} delete ho gaya.")
+        s["msg_edit"] = ("ok", f"🗑️ Record #{rid} delete ho gaya.")
     else:
         s["msg_edit"] = ("err", "Delete karne ke liye 'Delete confirm' tick karein.")
 
@@ -611,11 +611,11 @@ def record_manager(df, key):
         st.info("Is section me abhi koi record nahi hai.")
         return
     f1, f2, f3, f4, f5 = st.columns([2.2, 1.6, 1.4, 1.4, 1.4])
-    q = f1.text_input("🔍 Search (No./Name/Work/Party/Dept)", key=f"{{key}}_q")
-    party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{{key}}_p")
-    cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{{key}}_c")
-    res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{{key}}_r")
-    al_f = f5.selectbox("Alert", ["All"] + sorted(df["alert"].unique()), key=f"{{key}}_a")
+    q = f1.text_input("🔍 Search (No./Name/Work/Party/Dept)", key=f"{key}_q")
+    party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{key}_p")
+    cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{key}_c")
+    res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{key}_r")
+    al_f = f5.selectbox("Alert", ["All"] + sorted(df["alert"].unique()), key=f"{key}_a")
 
     fdf = df.copy()
     if q:
@@ -634,18 +634,18 @@ def record_manager(df, key):
     if al_f != "All":
         fdf = fdf[fdf["alert"] == al_f]
 
-    full = st.checkbox("Saare columns dikhao", key=f"{{key}}_full")
-    st.caption(f"{{len(fdf)}} record(s)  |  Quoted value: {{inr(fdf['amount'].sum())}}")
+    full = st.checkbox("Saare columns dikhao", key=f"{key}_full")
+    st.caption(f"{len(fdf)} record(s)  |  Quoted value: {inr(fdf['amount'].sum())}")
     show(fdf, ALL_COLS if full else TABLE_COLS, height=380)
 
     if fdf.empty:
         return
     title("✏️ Edit / Delete Record")
     st.checkbox("⌨️ Last field (Remarks) me Enter dabane par update karo", value=True, key="enter_save")
-    names = {int(r.id): f"#{{int(r.id)}} | {{r.tender_no}} | {{r.tender_name}} | {{r.party}}" for r in fdf.itertuples()}
-    sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{{key}}_sel")
+    names = {int(r.id): f"#{int(r.id)} | {r.tender_no} | {r.tender_name} | {r.party}" for r in fdf.itertuples()}
+    sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{key}_sel")
     rec = fdf[fdf["id"] == sel].iloc[0]
-    prefix = f"{{key}}_e{{sel}}_v{{st.session_state.get('ver', 0)}}"
+    prefix = f"{key}_e{sel}_v{st.session_state.get('ver', 0)}"
     record_form(prefix, rec, on_last=update_enter, last_args=(int(sel), prefix))
     msg = st.session_state.get("msg_edit")
     if msg:
@@ -654,9 +654,9 @@ def record_manager(df, key):
         else:
             st.error(msg[1])
     b1, b2, b3 = st.columns([1, 1, 2])
-    b1.button("🔄 Update Record", type="primary", key=f"{{prefix}}_upd", on_click=update_cb, args=(int(sel), prefix))
-    b2.button("🗑️ Delete Record", key=f"{{prefix}}_del", on_click=delete_cb, args=(int(sel), prefix))
-    b3.checkbox("Delete confirm karta hu", key=f"{{prefix}}_cf")
+    b1.button("🔄 Update Record", type="primary", key=f"{prefix}_upd", on_click=update_cb, args=(int(sel), prefix))
+    b2.button("🗑️ Delete Record", key=f"{prefix}_del", on_click=delete_cb, args=(int(sel), prefix))
+    b3.checkbox("Delete confirm karta hu", key=f"{prefix}_cf")
 
 
 def quick_edit(df, col, options, key):
@@ -667,15 +667,15 @@ def quick_edit(df, col, options, key):
         column_config={col: st.column_config.SelectboxColumn(col.replace("_", " ").title(), options=options,
                                                               required=True)},
     )
-    if st.button("💾 Save Changes", key=f"{{key}}_save", type="primary"):
+    if st.button("💾 Save Changes", key=f"{key}_save", type="primary"):
         n = 0
         with conn.cursor() as cur:
             for i, row in edited.iterrows():
                 if row[col] != base.loc[i, col]:
-                    cur.execute(f"UPDATE tenders SET {{col}}=%s WHERE id=%s", (row[col], int(row["id"])))
+                    cur.execute(f"UPDATE tenders SET {col}=%s WHERE id=%s", (row[col], int(row["id"])))
                     n += 1
         bump()
-        st.success(f"✅ {{n}} record update hue.")
+        st.success(f"✅ {n} record update hue.")
         do_rerun()
 
 
@@ -702,7 +702,7 @@ def summary(df, by):
 # ==================================================================
 st.markdown(
     f'<div class="topbar"><span>OFFICIAL TENDER MANAGEMENT PORTAL</span>'
-    f'<span>👤 {{st.session_state.username.upper()}} | {{datetime.today().strftime("%A, %d %B %Y")}}</span></div>'
+    f'<span>👤 {st.session_state.username.upper()} | {datetime.today().strftime("%A, %d %B %Y")}</span></div>'
     '<div class="banner"><h1>TENDER DASHBOARD - SSS</h1>'
     "<p>TENDER PARTICIPATION • RESULT • EMD • REPORTING SYSTEM</p></div>",
     unsafe_allow_html=True,
@@ -727,7 +727,7 @@ def goto_page(p):
 for row in (PAGES[:6], PAGES[6:]):
     cols = st.columns(6, gap="small")
     for col, p in zip(cols, row):
-        _s(col, "button", f"{{ICONS[p]}}  {{p.upper()}}", key=f"nav_{{p}}", on_click=goto_page, args=(p,),
+        _s(col, "button", f"{ICONS[p]}  {p.upper()}", key=f"nav_{p}", on_click=goto_page, args=(p,),
                    type="primary" if st.session_state.page == p else "secondary",
                    use_container_width=True)
 
@@ -782,7 +782,7 @@ def render_page():
                         try:
                             with conn.cursor() as cur:
                                 cur.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (n_u, n_p, n_r))
-                            st.success(f"✅ User '{{n_u}}' ban gaya!")
+                            st.success(f"✅ User '{n_u}' ban gaya!")
                             do_rerun()
                         except psycopg2.IntegrityError:
                             st.error("❌ Ye username pehle se majood hai.")
@@ -804,7 +804,7 @@ def render_page():
                     if del_u:
                         with conn.cursor() as cur:
                             cur.execute("DELETE FROM users WHERE username=%s", (del_u,))
-                        st.success(f"✅ User '{{del_u}}' delete ho gaya!")
+                        st.success(f"✅ User '{del_u}' delete ho gaya!")
                         do_rerun()
 
     # ---------------- DASHBOARD ----------------
@@ -844,7 +844,7 @@ def render_page():
                 kpi(a[2], "Not Participated", len(notp), "grey")
                 kpi(a[3], "Won", len(won), "green")
                 kpi(a[4], "Lost", len(lost), "red")
-                kpi(a[5], "Win Rate", f"{{win_rate:.1f}}%", "purple")
+                kpi(a[5], "Win Rate", f"{win_rate:.1f}%", "purple")
                 st.write("")
                 b = st.columns(6)
                 kpi(b[0], "Total Quoted Value", inr(part["amount"].sum()))
@@ -1041,7 +1041,7 @@ def render_page():
             kpi(k[1], "Lost", len(lost), "red")
             kpi(k[2], "Pending", len(pend), "amber")
             kpi(k[3], "Cancelled", len(canc), "grey")
-            kpi(k[4], "Win Rate", f"{{(len(won) / dec * 100 if dec else 0):.1f}}%", "purple")
+            kpi(k[4], "Win Rate", f"{win_rate:.1f}%", "purple")
             st.write("")
             t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
             with t1:
@@ -1113,8 +1113,8 @@ def render_page():
                                  hide_index=True, use_container_width=True)
                     fig = px.bar(g, x=by, y=["Quoted_Value", "Won_Value"], barmode="group",
                                  color_discrete_sequence=[BLUE, GREEN], labels={by: label, "value": "Amount"})
-                    _s(st, "plotly_chart", style(fig, f"{{label}}-wise Quoted vs Won Value", 360),
-                                    use_container_width=True, key=f"rep_{{by}}")
+                    _s(st, "plotly_chart", style(fig, f"{label}-wise Quoted vs Won Value", 360),
+                                    use_container_width=True, key=f"rep_{by}")
 
     # ---------------- EXPORT & REMINDER ----------------
     elif page == "Export & Reminder":
@@ -1129,13 +1129,13 @@ def render_page():
             upcoming = act[(act["days_left"] >= 0) & (act["days_left"] <= days)].sort_values("days_left")
             k = st.columns(2)
             kpi(k[0], "Overdue Tenders", len(overdue), "red")
-            kpi(k[1], f"Due in next {{days}} days", len(upcoming), "amber")
+            kpi(k[1], f"Due in next {days} days", len(upcoming), "amber")
             st.write("")
             if not overdue.empty:
-                st.error(f"🔴 {{len(overdue)}} tender(s) ki due date nikal chuki hai!")
+                st.error(f"🔴 {len(overdue)} tender(s) ki due date nikal chuki hai!")
                 show(overdue)
             if not upcoming.empty:
-                st.warning(f"🟠 {{len(upcoming)}} tender(s) {{days}} din ke andar due hain.")
+                st.warning(f"🟠 {len(upcoming)} tender(s) {days} din ke andar due hain.")
                 show(upcoming)
             if overdue.empty and upcoming.empty:
                 st.success("🟢 Koi urgent reminder nahi.")
@@ -1147,7 +1147,7 @@ def render_page():
             stamp = datetime.today().strftime("%Y%m%d")
             d1, d2 = st.columns(2)
             _s(d1, "download_button", "📥 Download CSV (All)", exp.to_csv(index=False).encode("utf-8-sig"),
-                               file_name=f"tenders_{{stamp}}.csv", mime="text/csv", use_container_width=True)
+                               file_name=f"tenders_{stamp}.csv", mime="text/csv", use_container_width=True)
             try:
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as xw:
@@ -1156,7 +1156,7 @@ def render_page():
                     exp[exp["participation"] == "Not Participated"].to_excel(xw, index=False, sheet_name="Not Participated")
                     exp[exp["result"] == "Won"].to_excel(xw, index=False, sheet_name="Won")
                     exp[exp["result"] == "Lost"].to_excel(xw, index=False, sheet_name="Lost")
-                _s(d2, "download_button", "📥 Download Excel (Multi-sheet)", buf.getvalue(), file_name=f"tenders_{{stamp}}.xlsx",
+                _s(d2, "download_button", "📥 Download Excel (Multi-sheet)", buf.getvalue(), file_name=f"tenders_{stamp}.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                    use_container_width=True)
             except Exception:
@@ -1182,7 +1182,7 @@ def render_page():
                     for c in DATE_COLS:
                         if c in idf:
                             idf[c] = pd.to_datetime(idf[c], errors="coerce").dt.strftime("%Y-%m-%d")
-                    st.write(f"{{len(idf)}} row(s) import ke liye ready:")
+                    st.write(f"{len(idf)} row(s) import ke liye ready:")
                     _s(st, "dataframe", idf.head(10), hide_index=True, use_container_width=True)
                     if st.button("✅ Import Karein", type="primary"):
                         idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1192,23 +1192,23 @@ def render_page():
                                 cols_to_insert = list(row.index)
                                 vals_to_insert = list(row.values)
                                 placeholders = ','.join(['%s'] * len(cols_to_insert))
-                                cur.execute(f"INSERT INTO tenders ({{','.join(cols_to_insert)}}) VALUES ({{placeholders}})", vals_to_insert)
+                                cur.execute(f"INSERT INTO tenders ({','.join(cols_to_insert)}) VALUES ({placeholders})", vals_to_insert)
                         bump()
                         st.success("Import complete!")
                         do_rerun()
             except Exception as ex:
-                st.error(f"File read nahi ho payi: {{ex}}")
+                st.error(f"File read nahi ho payi: {ex}")
 
 
 
 try:
     render_page()
 except Exception as ex:
-    st.error(f"⚠️ Page load me problem aayi: {{type(ex).__name__}}: {{ex}}")
+    st.error(f"⚠️ Page load me problem aayi: {type(ex).__name__}: {ex}")
     with st.expander("Technical details"):
         st.code(traceback.format_exc())
 
 st.markdown(
-    f'<div class="footer">© SSS Tender Management Portal • {{datetime.today().year}}</div>',
+    f'<div class="footer">© SSS Tender Management Portal • {datetime.today().year}</div>',
     unsafe_allow_html=True,
 )
