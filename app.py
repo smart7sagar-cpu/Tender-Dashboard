@@ -1,13 +1,14 @@
 import io
+import os
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import psycopg2
 import streamlit as st
 import time
 import traceback
-import psycopg2
 
 
 # ==================================================================
@@ -153,41 +154,90 @@ NUM_COLS = ["estimated_cost", "amount", "emd_amount", "tender_fee"]
 DATE_COLS = ["publish_date", "due_date", "opening_date"]
 
 
+class PgDB:
+    """Neon PostgreSQL wrapper: purane sqlite wale code (conn.execute / conn.commit) jaisa hi kaam karta hai.
+    Connection toot jaye (Neon sleep / idle timeout) to apne aap dobara connect ho jata hai."""
+
+    def __init__(self, url):
+        self.url = url
+        self._conn = None
+        self._connect()
+
+    def _connect(self):
+        try:
+            if self._conn is not None:
+                self._conn.close()
+        except Exception:
+            pass
+        self._conn = psycopg2.connect(self.url, connect_timeout=15)
+        self._conn.autocommit = True  # har query turant permanently save hoti hai
+
+    def execute(self, sql, params=None):
+        if params is not None:
+            sql = sql.replace("?", "%s")
+        for attempt in (1, 2):
+            try:
+                cur = self._conn.cursor()
+                cur.execute(sql, params)
+                return cur
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                if attempt == 2:
+                    raise
+                self._connect()
+
+    def executemany(self, sql, rows):
+        sql = sql.replace("?", "%s")
+        for attempt in (1, 2):
+            try:
+                cur = self._conn.cursor()
+                cur.executemany(sql, rows)
+                return cur
+            except (psycopg2.OperationalError, psycopg2.InterfaceError):
+                if attempt == 2:
+                    raise
+                self._connect()
+
+    def commit(self):
+        pass  # autocommit on hai
+
+
+def _db_url():
+    try:
+        if "DATABASE_URL" in st.secrets:
+            return st.secrets["DATABASE_URL"]
+    except Exception:
+        pass
+    return os.environ.get("DATABASE_URL", "")
+
+
 @st.cache_resource
 def get_conn():
-    conn = psycopg2.connect(st.secrets["DATABASE_URL"])
-    conn.autocommit = True
-    
-    with conn.cursor() as cur:
-        # Tenders Table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS tenders (
-                id SERIAL PRIMARY KEY,
-                tender_no TEXT, tender_name TEXT, department TEXT, party TEXT,
-                category TEXT, location TEXT, participation TEXT, not_part_reason TEXT,
-                estimated_cost REAL, amount REAL, emd_amount REAL, emd_status TEXT,
-                tender_fee REAL, publish_date TEXT, due_date TEXT, opening_date TEXT,
-                result TEXT, status TEXT, work_order_no TEXT, remarks TEXT,
-                work_description TEXT, no_of_awardees INTEGER, created_at TEXT
-            )
-        """)
-        # Users Table
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY, 
-                username TEXT UNIQUE, 
-                password TEXT, 
-                role TEXT
-            )
-        """)
-        cur.execute("SELECT COUNT(*) FROM users")
-        if cur.fetchone()[0] == 0:
-            cur.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", ("admin", "admin123", "admin"))
-            
+    url = _db_url()
+    if not url:
+        st.error("⚠️ DATABASE_URL set nahi hai. Streamlit Cloud → App → Settings → Secrets me add karein.")
+        st.stop()
+    conn = PgDB(url)
+    # Tenders Table
+    conn.execute("CREATE TABLE IF NOT EXISTS tenders (id SERIAL PRIMARY KEY)")
+    for col, typ in DB_COLS.items():
+        pg_typ = "DOUBLE PRECISION" if typ == "REAL" else typ
+        conn.execute(f"ALTER TABLE tenders ADD COLUMN IF NOT EXISTS {col} {pg_typ}")
+
+    # Users Table (Plain text password for admin to view)
+    conn.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT UNIQUE, password TEXT, role TEXT)")
+    cur = conn.execute("SELECT COUNT(*) FROM users")
+    if cur.fetchone()[0] == 0:
+        conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", ("admin", "admin123", "admin"))
     return conn
 
 
 conn = get_conn()
+
+
+def read_df(sql):
+    cur = conn.execute(sql)
+    cols = [d[0] for d in cur.description]
+    return pd.DataFrame(cur.fetchall(), columns=cols)
 
 # ==================================================================
 # LOGIN SYSTEM
@@ -198,7 +248,7 @@ if "logged_in" not in st.session_state:
 if not st.session_state.logged_in:
     st.markdown(
         f'<div class="topbar"><span>SECURE TENDER PORTAL</span>'
-        f'<span>{{datetime.today().strftime("%A, %d %B %Y")}}</span></div>'
+        f'<span>{datetime.today().strftime("%A, %d %B %Y")}</span></div>'
         '<div class="banner"><h1>🔒 LOGIN PORTAL</h1>'
         "<p>PLEASE ENTER YOUR CREDENTIALS TO ACCESS DATA</p></div>",
         unsafe_allow_html=True,
@@ -214,9 +264,8 @@ if not st.session_state.logged_in:
         st.write("")
         
         if st.button("Secure Login", type="primary"):
-            with conn.cursor() as cur:
-                cur.execute("SELECT password, role FROM users WHERE username=%s", (u,))
-                row = cur.fetchone()
+            cur = conn.execute("SELECT password, role FROM users WHERE username=?", (u,))
+            row = cur.fetchone()
             # Direct text matching since admin needs to see exact passwords
             if row and row[0] == p:
                 st.session_state.logged_in = True
@@ -235,7 +284,7 @@ def fy_of(d):
     if pd.isna(d):
         return "Unknown"
     y = d.year if d.month >= 4 else d.year - 1
-    return f"{y}-{{str(y + 1)[2:]}}"
+    return f"{y}-{str(y + 1)[2:]}"
 
 
 def alert_of(r):
@@ -255,11 +304,7 @@ def alert_of(r):
 
 
 def load_df() -> pd.DataFrame:
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM tenders ORDER BY id DESC")
-        rows = cur.fetchall()
-        cols = [desc[0] for desc in cur.description]
-    df = pd.DataFrame(rows, columns=cols)
+    df = read_df("SELECT * FROM tenders ORDER BY id DESC")
     if df.empty:
         return df
     for c in TEXT_COLS:
@@ -286,17 +331,17 @@ def bump():
 
 def insert_record(v: dict):
     cols = list(v)
-    with conn.cursor() as cur:
-        cur.execute(
-            f"INSERT INTO tenders ({{','.join(cols)}}) VALUES ({{','.join(['%s'] * len(cols))}})", list(v.values())
-        )
+    conn.execute(
+        f"INSERT INTO tenders ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", list(v.values())
+    )
+    conn.commit()
     bump()
 
 
 def update_record(rid: int, v: dict):
-    sets = ",".join(f"{{c}}=%s" for c in v)
-    with conn.cursor() as cur:
-        cur.execute(f"UPDATE tenders SET {{sets}} WHERE id=%s", list(v.values()) + [rid])
+    sets = ",".join(f"{c}=?" for c in v)
+    conn.execute(f"UPDATE tenders SET {sets} WHERE id=?", list(v.values()) + [rid])
+    conn.commit()
     bump()
 
 
@@ -306,21 +351,21 @@ def update_record(rid: int, v: dict):
 def inr(x: float) -> str:
     x = float(x or 0)
     if abs(x) >= 1e7:
-        return f"{CUR}{{x / 1e7:.2f}} Cr"
+        return f"{CUR}{x / 1e7:.2f} Cr"
     if abs(x) >= 1e5:
-        return f"{CUR}{{x / 1e5:.2f}} L"
-    return f"{CUR}{{x:,.0f}}"
+        return f"{CUR}{x / 1e5:.2f} L"
+    return f"{CUR}{x:,.0f}"
 
 
 def kpi(col, label, value, cls=""):
     col.markdown(
-        f'<div class="kpi {{cls}}"><div class="label">{{label}}</div><div class="value">{{value}}</div></div>',
+        f'<div class="kpi {cls}"><div class="label">{label}</div><div class="value">{value}</div></div>',
         unsafe_allow_html=True,
     )
 
 
 def title(text):
-    st.markdown(f'<div class="section-title">{{text}}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 
 def style(fig, text, h=360):
@@ -335,7 +380,7 @@ def style(fig, text, h=360):
 
 def donut(df, col, text, cmap, key, value=None):
     if df.empty:
-        st.info(f"{{text}}: data nahi hai")
+        st.info(f"{text}: data nahi hai")
         return
     if value:
         g = df.groupby(col, as_index=False)[value].sum()
@@ -346,7 +391,7 @@ def donut(df, col, text, cmap, key, value=None):
     fig = px.pie(g, names=col, values=vals, hole=0.58, color=col, color_discrete_map=cmap)
     fig.update_traces(textinfo="percent", textfont_size=13)
     total = g[vals].sum()
-    fig.add_annotation(text=f"<b>{{inr(total) if value else int(total)}}</b>", showarrow=False,
+    fig.add_annotation(text=f"<b>{inr(total) if value else int(total)}</b>", showarrow=False,
                        font=dict(size=20, color=NAVY))
     _s(st, "plotly_chart", style(fig, text, 340), use_container_width=True, key=key)
 
@@ -438,7 +483,7 @@ def enter_nav(focus_first=False):
     try:
         import streamlit.components.v1 as components
         js = _NAV_JS.replace("__FOCUS_FIRST__", "true" if focus_first else "false")
-        components.html(f"<script>{{js}}</script>", height=0)
+        components.html(f"<script>{js}</script>", height=0)
     except Exception:
         pass
 
@@ -460,7 +505,7 @@ def _pick(val, options, default=None):
 
 
 def record_form(prefix, rec=None, on_last=None, last_args=()):
-    P = lambda n: f"{{prefix}}_{{n}}"
+    P = lambda n: f"{prefix}_{n}"
 
     def g(k, d=""):
         if rec is not None and k in rec.index and pd.notna(rec[k]) and rec[k] != "":
@@ -538,7 +583,7 @@ def record_form(prefix, rec=None, on_last=None, last_args=()):
 
 def collect(prefix):
     s = st.session_state
-    G = lambda n, d="": s.get(f"{{prefix}}_{{n}}", d)
+    G = lambda n, d="": s.get(f"{prefix}_{n}", d)
     today = date.today()
     return {
         "tender_no": str(G("no")).strip(), "tender_name": str(G("name")).strip(),
@@ -564,7 +609,7 @@ def save_new():
         vals["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         insert_record(vals)
         for k in FIELD_KEYS:
-            s.pop(f"add_{{k}}", None)
+            s.pop(f"add_{k}", None)
         s["ts_add"] = time.time()
         s["focus_first"] = True
         s["msg_add"] = ("ok", "✅ Record save ho gaya! Naya record bhar sakte hain.")
@@ -582,7 +627,7 @@ def update_cb(rid, prefix):
     vals = collect(prefix)
     if vals["tender_name"] and vals["party"]:
         update_record(int(rid), vals)
-        s["msg_edit"] = ("ok", f"✅ Record #{{rid}} update ho gaya.")
+        s["msg_edit"] = ("ok", f"✅ Record #{rid} update ho gaya.")
     else:
         s["msg_edit"] = ("err", "❌ Tender Name aur Party Name zaroori hai.")
 
@@ -594,11 +639,11 @@ def update_enter(rid, prefix):
 
 def delete_cb(rid, prefix):
     s = st.session_state
-    if s.get(f"{{prefix}}_cf"):
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM tenders WHERE id=%s", (int(rid),))
+    if s.get(f"{prefix}_cf"):
+        conn.execute("DELETE FROM tenders WHERE id=?", (int(rid),))
+        conn.commit()
         bump()
-        s["msg_edit"] = ("ok", f"🗑️ Record #{{rid}} delete ho gaya.")
+        s["msg_edit"] = ("ok", f"🗑️ Record #{rid} delete ho gaya.")
     else:
         s["msg_edit"] = ("err", "Delete karne ke liye 'Delete confirm' tick karein.")
 
@@ -611,11 +656,11 @@ def record_manager(df, key):
         st.info("Is section me abhi koi record nahi hai.")
         return
     f1, f2, f3, f4, f5 = st.columns([2.2, 1.6, 1.4, 1.4, 1.4])
-    q = f1.text_input("🔍 Search (No./Name/Work/Party/Dept)", key=f"{{key}}_q")
-    party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{{key}}_p")
-    cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{{key}}_c")
-    res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{{key}}_r")
-    al_f = f5.selectbox("Alert", ["All"] + sorted(df["alert"].unique()), key=f"{{key}}_a")
+    q = f1.text_input("🔍 Search (No./Name/Work/Party/Dept)", key=f"{key}_q")
+    party_f = f2.selectbox("Party", ["All"] + sorted([p for p in df["party"].unique() if p]), key=f"{key}_p")
+    cat_f = f3.selectbox("Category", ["All"] + sorted([p for p in df["category"].unique() if p]), key=f"{key}_c")
+    res_f = f4.selectbox("Result", ["All"] + RESULTS, key=f"{key}_r")
+    al_f = f5.selectbox("Alert", ["All"] + sorted(df["alert"].unique()), key=f"{key}_a")
 
     fdf = df.copy()
     if q:
@@ -634,18 +679,18 @@ def record_manager(df, key):
     if al_f != "All":
         fdf = fdf[fdf["alert"] == al_f]
 
-    full = st.checkbox("Saare columns dikhao", key=f"{{key}}_full")
-    st.caption(f"{{len(fdf)}} record(s)  |  Quoted value: {{inr(fdf['amount'].sum())}}")
+    full = st.checkbox("Saare columns dikhao", key=f"{key}_full")
+    st.caption(f"{len(fdf)} record(s)  |  Quoted value: {inr(fdf['amount'].sum())}")
     show(fdf, ALL_COLS if full else TABLE_COLS, height=380)
 
     if fdf.empty:
         return
     title("✏️ Edit / Delete Record")
     st.checkbox("⌨️ Last field (Remarks) me Enter dabane par update karo", value=True, key="enter_save")
-    names = {int(r.id): f"#{{int(r.id)}} | {{r.tender_no}} | {{r.tender_name}} | {{r.party}}" for r in fdf.itertuples()}
-    sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{{key}}_sel")
+    names = {int(r.id): f"#{int(r.id)} | {r.tender_no} | {r.tender_name} | {r.party}" for r in fdf.itertuples()}
+    sel = st.selectbox("Record select karein", list(names), format_func=lambda i: names[i], key=f"{key}_sel")
     rec = fdf[fdf["id"] == sel].iloc[0]
-    prefix = f"{{key}}_e{{sel}}_v{{st.session_state.get('ver', 0)}}"
+    prefix = f"{key}_e{sel}_v{st.session_state.get('ver', 0)}"
     record_form(prefix, rec, on_last=update_enter, last_args=(int(sel), prefix))
     msg = st.session_state.get("msg_edit")
     if msg:
@@ -654,9 +699,9 @@ def record_manager(df, key):
         else:
             st.error(msg[1])
     b1, b2, b3 = st.columns([1, 1, 2])
-    b1.button("🔄 Update Record", type="primary", key=f"{{prefix}}_upd", on_click=update_cb, args=(int(sel), prefix))
-    b2.button("🗑️ Delete Record", key=f"{{prefix}}_del", on_click=delete_cb, args=(int(sel), prefix))
-    b3.checkbox("Delete confirm karta hu", key=f"{{prefix}}_cf")
+    b1.button("🔄 Update Record", type="primary", key=f"{prefix}_upd", on_click=update_cb, args=(int(sel), prefix))
+    b2.button("🗑️ Delete Record", key=f"{prefix}_del", on_click=delete_cb, args=(int(sel), prefix))
+    b3.checkbox("Delete confirm karta hu", key=f"{prefix}_cf")
 
 
 def quick_edit(df, col, options, key):
@@ -667,15 +712,15 @@ def quick_edit(df, col, options, key):
         column_config={col: st.column_config.SelectboxColumn(col.replace("_", " ").title(), options=options,
                                                               required=True)},
     )
-    if st.button("💾 Save Changes", key=f"{{key}}_save", type="primary"):
+    if st.button("💾 Save Changes", key=f"{key}_save", type="primary"):
         n = 0
-        with conn.cursor() as cur:
-            for i, row in edited.iterrows():
-                if row[col] != base.loc[i, col]:
-                    cur.execute(f"UPDATE tenders SET {{col}}=%s WHERE id=%s", (row[col], int(row["id"])))
-                    n += 1
+        for i, row in edited.iterrows():
+            if row[col] != base.loc[i, col]:
+                conn.execute(f"UPDATE tenders SET {col}=? WHERE id=?", (row[col], int(row["id"])))
+                n += 1
+        conn.commit()
         bump()
-        st.success(f"✅ {{n}} record update hue.")
+        st.success(f"✅ {n} record update hue.")
         do_rerun()
 
 
@@ -702,7 +747,7 @@ def summary(df, by):
 # ==================================================================
 st.markdown(
     f'<div class="topbar"><span>OFFICIAL TENDER MANAGEMENT PORTAL</span>'
-    f'<span>👤 {{st.session_state.username.upper()}} | {{datetime.today().strftime("%A, %d %B %Y")}}</span></div>'
+    f'<span>👤 {st.session_state.username.upper()} | {datetime.today().strftime("%A, %d %B %Y")}</span></div>'
     '<div class="banner"><h1>TENDER DASHBOARD - SSS</h1>'
     "<p>TENDER PARTICIPATION • RESULT • EMD • REPORTING SYSTEM</p></div>",
     unsafe_allow_html=True,
@@ -727,7 +772,7 @@ def goto_page(p):
 for row in (PAGES[:6], PAGES[6:]):
     cols = st.columns(6, gap="small")
     for col, p in zip(cols, row):
-        _s(col, "button", f"{{ICONS[p]}}  {{p.upper()}}", key=f"nav_{{p}}", on_click=goto_page, args=(p,),
+        _s(col, "button", f"{ICONS[p]}  {p.upper()}", key=f"nav_{p}", on_click=goto_page, args=(p,),
                    type="primary" if st.session_state.page == p else "secondary",
                    use_container_width=True)
 
@@ -755,13 +800,12 @@ def render_page():
         conf_p = c_conf.text_input("Confirm New Password", type="password")
         
         if st.button("Update Password", type="primary"):
-            with conn.cursor() as cur:
-                cur.execute("SELECT password FROM users WHERE username=%s", (st.session_state.username,))
-                row = cur.fetchone()
+            cur = conn.execute("SELECT password FROM users WHERE username=?", (st.session_state.username,))
+            row = cur.fetchone()
             if row and row[0] == old_p:
                 if new_p == conf_p and len(new_p) >= 4:
-                    with conn.cursor() as cur:
-                        cur.execute("UPDATE users SET password=%s WHERE username=%s", (new_p, st.session_state.username))
+                    conn.execute("UPDATE users SET password=? WHERE username=?", (new_p, st.session_state.username))
+                    conn.commit()
                     st.success("✅ Password successfully updated!")
                 else:
                     st.error("❌ Naya password match nahi ho raha ya bahut chota hai (min 4 char).")
@@ -780,9 +824,9 @@ def render_page():
                 if st.button("Add User", type="primary"):
                     if n_u and len(n_p) >= 4:
                         try:
-                            with conn.cursor() as cur:
-                                cur.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, %s)", (n_u, n_p, n_r))
-                            st.success(f"✅ User '{{n_u}}' ban gaya!")
+                            conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (n_u, n_p, n_r))
+                            conn.commit()
+                            st.success(f"✅ User '{n_u}' ban gaya!")
                             do_rerun()
                         except psycopg2.IntegrityError:
                             st.error("❌ Ye username pehle se majood hai.")
@@ -791,20 +835,16 @@ def render_page():
             with c2:
                 st.markdown("**📋 Existing Users (Passwords Visible)**")
                 # Admin can see all passwords as requested
-                with conn.cursor() as cur:
-                    cur.execute("SELECT id, username, password, role FROM users")
-                    users_rows = cur.fetchall()
-                    users_cols = [desc[0] for desc in cur.description]
-                users_df = pd.DataFrame(users_rows, columns=users_cols)
+                users_df = read_df("SELECT id, username, password, role FROM users ORDER BY id")
                 st.dataframe(users_df, hide_index=True, use_container_width=True)
                 
                 st.write("")
                 del_u = st.selectbox("Select User to Delete", [u for u in users_df['username'] if u != st.session_state.username])
                 if st.button("🗑️ Delete User"):
                     if del_u:
-                        with conn.cursor() as cur:
-                            cur.execute("DELETE FROM users WHERE username=%s", (del_u,))
-                        st.success(f"✅ User '{{del_u}}' delete ho gaya!")
+                        conn.execute("DELETE FROM users WHERE username=?", (del_u,))
+                        conn.commit()
+                        st.success(f"✅ User '{del_u}' delete ho gaya!")
                         do_rerun()
 
     # ---------------- DASHBOARD ----------------
@@ -844,7 +884,7 @@ def render_page():
                 kpi(a[2], "Not Participated", len(notp), "grey")
                 kpi(a[3], "Won", len(won), "green")
                 kpi(a[4], "Lost", len(lost), "red")
-                kpi(a[5], "Win Rate", f"{{win_rate:.1f}}%", "purple")
+                kpi(a[5], "Win Rate", f"{win_rate:.1f}%", "purple")
                 st.write("")
                 b = st.columns(6)
                 kpi(b[0], "Total Quoted Value", inr(part["amount"].sum()))
@@ -1041,7 +1081,7 @@ def render_page():
             kpi(k[1], "Lost", len(lost), "red")
             kpi(k[2], "Pending", len(pend), "amber")
             kpi(k[3], "Cancelled", len(canc), "grey")
-            kpi(k[4], "Win Rate", f"{win_rate:.1f}%", "purple")
+            kpi(k[4], "Win Rate", f"{(len(won) / dec * 100 if dec else 0):.1f}%", "purple")
             st.write("")
             t1, t2, t3, t4 = st.tabs(["🏆 Won", "❌ Lost", "⏳ Pending", "🚫 Cancelled"])
             with t1:
@@ -1165,8 +1205,15 @@ def render_page():
     # ---------------- BACKUP & IMPORT ----------------
     elif page == "Backup & Import":
         title("💾 Database Backup")
-        st.info("Cloud Database mode enabled. Direct database file backup is disabled. Please use CSV/Excel export for backup.")
-        st.caption("Streamlit Cloud par restart ke baad database reset ho sakta hai, isliye regular backup lete rahein.")
+        try:
+            bk = read_df("SELECT * FROM tenders ORDER BY id")
+            _s(st, "download_button", "📥 Download Database Backup (CSV)", bk.to_csv(index=False).encode("utf-8-sig"),
+                               file_name=f"tenders_backup_{datetime.today().strftime('%Y%m%d')}.csv",
+                               mime="text/csv", use_container_width=True)
+        except Exception:
+            st.warning("Database abhi available nahi hai.")
+        st.caption("Data Neon cloud database me permanently saved hai (restart / sleep se delete nahi hoga). "
+                   "Extra safety ke liye yahan se backup le sakte hain, aur neeche Import se wapas load kar sakte hain.")
 
         title("📥 Import from CSV / Excel")
         st.caption("File me ye columns ho sakte hain: " + ", ".join(DB_COLS.keys()) + ". 'tender_name' zaroori hai.")
@@ -1186,13 +1233,21 @@ def render_page():
                     _s(st, "dataframe", idf.head(10), hide_index=True, use_container_width=True)
                     if st.button("✅ Import Karein", type="primary"):
                         idf["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        with conn.cursor() as cur:
-                            for _, row in idf.iterrows():
-                                cols_to_insert = list(row.index)
-                                vals_to_insert = list(row.values)
-                                placeholders = ','.join(['%s'] * len(cols_to_insert))
-                                cur.execute(f"INSERT INTO tenders ({','.join(cols_to_insert)}) VALUES ({placeholders})", vals_to_insert)
+                        icols = list(idf.columns)
+                        rows = []
+                        for r in idf.itertuples(index=False, name=None):
+                            row = []
+                            for c, x in zip(icols, r):
+                                if pd.isna(x):
+                                    x = None
+                                elif hasattr(x, "item"):
+                                    x = x.item()
+                                if x is not None and c in TEXT_COLS + DATE_COLS + ["created_at"]:
+                                    x = str(x)
+                                row.append(x)
+                            rows.append(row)
+                        conn.executemany(
+                            f"INSERT INTO tenders ({','.join(icols)}) VALUES ({','.join('?' * len(icols))})", rows)
                         bump()
                         st.success("Import complete!")
                         do_rerun()
