@@ -32,7 +32,7 @@ def _s(obj, name, *args, **kwargs):
 # PAGE CONFIG
 # ==================================================================
 st.set_page_config(
-    page_title="Tender Portal - SSS",
+    page_title="Tender Record - SNRL",
     page_icon="📑",
     layout="wide",
     initial_sidebar_state="collapsed",
