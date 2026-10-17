@@ -748,7 +748,7 @@ def summary(df, by):
 st.markdown(
     f'<div class="topbar"><span>OFFICIAL TENDER MANAGEMENT PORTAL</span>'
     f'<span>👤 {st.session_state.username.upper()} | {datetime.today().strftime("%A, %d %B %Y")}</span></div>'
-    '<div class="banner"><h1>TENDER DASHBOARD - SSS</h1>'
+    '<div class="banner"><h1>TENDER DASHBOARD - SNRL</h1>'
     "<p>TENDER PARTICIPATION • RESULT • EMD • REPORTING SYSTEM</p></div>",
     unsafe_allow_html=True,
 )
